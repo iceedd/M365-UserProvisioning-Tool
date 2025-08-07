@@ -1,14 +1,12 @@
-# M365.Authentication.psm1 - COMPLETE FIXED VERSION
-# Microsoft Graph and Exchange Online authentication module for M365 User Provisioning Tool
-
+#Requires -Version 7.0
 <#
 .SYNOPSIS
-    Authentication module for M365 services
+    M365 Authentication Module - Complete Version
 .DESCRIPTION  
     Handles Microsoft Graph and Exchange Online connections, disconnections, and tenant discovery
 .NOTES
-    Extracted from M365 User Provisioning Tool legacy script
-    Version: 1.0.1 - UI Dependencies Removed, All Functions Added
+    Version: 1.0.0 - Complete Working Version
+    Author: Tom Mortiboys
 #>
 
 # Module-scoped variables
@@ -94,7 +92,7 @@ function Connect-ExchangeOnlineAtStartup {
         
         Write-Verbose "Opening browser for Exchange Online authentication..."
         
-        # Use device code authentication (browser-based, same method as Graph)
+        # Use device code authentication (browser-based)
         Connect-ExchangeOnline -Device -ShowBanner:$false -ErrorAction Stop
         
         $Script:ExchangeOnlineConnected = $true
@@ -121,7 +119,6 @@ function Connect-ExchangeOnlineIfNeeded {
     .SYNOPSIS
         Connects to Exchange Online if not already connected
     #>
-    # Check if Exchange Online is already connected
     if ($Script:ExchangeOnlineConnected) {
         return $true
     }
@@ -221,21 +218,27 @@ function Start-TenantDiscovery {
         
         # Discover available licenses
         Write-Verbose "Discovering available licenses..."
-        $Licenses = Get-MgSubscribedSku -ErrorAction Stop
-        $Script:TenantData.AvailableLicenses = $Licenses | Select-Object SkuId, SkuPartNumber, DisplayName, @{
-            Name = "Available"
-            Expression = { 
-                $Available = $_.PrepaidUnits.Enabled - $_.ConsumedUnits
-                if ($Available -lt 0) { 0 } else { $Available }
+        try {
+            $Licenses = Get-MgSubscribedSku -ErrorAction Stop
+            $Script:TenantData.AvailableLicenses = $Licenses | Select-Object SkuId, SkuPartNumber, DisplayName, @{
+                Name = "Available"
+                Expression = { 
+                    $Available = $_.PrepaidUnits.Enabled - $_.ConsumedUnits
+                    if ($Available -lt 0) { 0 } else { $Available }
+                }
+            }, @{
+                Name = "Total"
+                Expression = { $_.PrepaidUnits.Enabled }
+            }, @{
+                Name = "Consumed" 
+                Expression = { $_.ConsumedUnits }
             }
-        }, @{
-            Name = "Total"
-            Expression = { $_.PrepaidUnits.Enabled }
-        }, @{
-            Name = "Consumed" 
-            Expression = { $_.ConsumedUnits }
+            Write-Verbose "Found $($Script:TenantData.AvailableLicenses.Count) license types"
         }
-        Write-Verbose "Found $($Script:TenantData.AvailableLicenses.Count) license types"
+        catch {
+            Write-Warning "License discovery failed: $($_.Exception.Message)"
+            $Script:TenantData.AvailableLicenses = @()
+        }
         
         # Discover all groups
         Write-Verbose "Discovering all groups..."
@@ -288,62 +291,6 @@ function Start-TenantDiscovery {
         }, IsDefault, IsVerified
         Write-Verbose "Found $($Script:TenantData.AcceptedDomains.Count) verified domains"
         
-        # Discover mailboxes
-        Write-Verbose "Discovering mailboxes..."
-        try {
-            $UserMailboxes = Get-MgUser -All -Property Id,DisplayName,UserPrincipalName,Mail,MailNickname | Where-Object { $null -ne $_.Mail }
-            
-            $Script:TenantData.AvailableMailboxes = $UserMailboxes | Select-Object @{
-                Name = "Id"; Expression = { $_.Id }
-            }, @{
-                Name = "DisplayName"; Expression = { $_.DisplayName }
-            }, @{
-                Name = "EmailAddress"; Expression = { $_.Mail }
-            }, @{
-                Name = "MailboxType"; Expression = { "User" }
-            }
-            Write-Verbose "Found $($Script:TenantData.AvailableMailboxes.Count) user mailboxes"
-            
-            # Discover shared mailboxes
-            try {
-                $SharedMailboxQuery = Get-MgUser -All -Property Id,DisplayName,UserPrincipalName,Mail,AccountEnabled | Where-Object { 
-                    $_.AccountEnabled -eq $false -and $null -ne $_.Mail 
-                }
-                
-                $Script:TenantData.SharedMailboxes = $SharedMailboxQuery | Select-Object @{
-                    Name = "Id"; Expression = { $_.Id }
-                }, @{
-                    Name = "DisplayName"; Expression = { $_.DisplayName }
-                }, @{
-                    Name = "EmailAddress"; Expression = { $_.Mail }
-                }, @{
-                    Name = "MailboxType"; Expression = { "Shared" }
-                }
-                Write-Verbose "Found $($Script:TenantData.SharedMailboxes.Count) potential shared mailboxes"
-            }
-            catch {
-                Write-Warning "Could not discover shared mailboxes: $($_.Exception.Message)"
-                $Script:TenantData.SharedMailboxes = @()
-            }
-        }
-        catch {
-            Write-Warning "Mailbox discovery failed: $($_.Exception.Message)"
-            $Script:TenantData.AvailableMailboxes = @()
-            $Script:TenantData.SharedMailboxes = @()
-        }
-        
-        # Discover SharePoint sites
-        Write-Verbose "Discovering SharePoint sites..."
-        try {
-            $Sites = Get-MgSite -All -ErrorAction Stop
-            $Script:TenantData.SharePointSites = $Sites | Select-Object Id, DisplayName, WebUrl, Description
-            Write-Verbose "Found $($Script:TenantData.SharePointSites.Count) SharePoint sites"
-        }
-        catch {
-            Write-Warning "SharePoint site discovery failed: $($_.Exception.Message)"
-            $Script:TenantData.SharePointSites = @()
-        }
-        
         Write-Verbose "Tenant discovery completed successfully"
         
         return @{
@@ -356,7 +303,6 @@ function Start-TenantDiscovery {
                 SharedMailboxes = $Script:TenantData.SharedMailboxes.Count
                 Licenses = $Script:TenantData.AvailableLicenses.Count
                 Domains = $Script:TenantData.AcceptedDomains.Count
-                SharePointSites = $Script:TenantData.SharePointSites.Count
             }
         }
     }
@@ -483,7 +429,7 @@ function Get-M365ConnectionInfo {
     }
 }
 
-# Export public functions - ALL 9 FUNCTIONS
+# Export all 9 functions
 Export-ModuleMember -Function @(
     'Connect-ToMicrosoftGraph',
     'Disconnect-FromMicrosoftGraph',

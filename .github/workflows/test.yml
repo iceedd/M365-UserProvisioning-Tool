@@ -1,0 +1,22 @@
+name: CI
+on: [push, pull_request]
+
+jobs:
+  test:
+    runs-on: windows-latest
+    steps:
+    - uses: actions/checkout@v3
+    
+    - name: Setup PowerShell
+      uses: actions/setup-powershell@v2
+      with: 
+        pwsh-version: '7.2.0'
+        
+    - name: Install dependencies
+      run: |
+        Install-Module Pester -Force -SkipPublisherCheck
+        Install-Module Microsoft.Graph -Force -AllowClobber
+        Install-Module ExchangeOnlineManagement -Force
+        
+    - name: Run tests
+      run: Invoke-Pester ./Tests -Output Detailed

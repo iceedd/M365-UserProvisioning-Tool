@@ -1,6 +1,6 @@
 @{
 # Script module or binary module file associated with this manifest.
-RootModule = 'M365.Authentication.psm1'
+RootModule = 'M365.GUI.psm1'
 
 # Version number of this module.
 ModuleVersion = '1.0.0'
@@ -9,7 +9,7 @@ ModuleVersion = '1.0.0'
 CompatiblePSEditions = 'Core'
 
 # ID used to uniquely identify this module
-GUID = '72ed420e-7d53-498e-8f5d-f6a94f4781e9'
+GUID = 'b4d8e5c2-9a7f-4e3d-8c1b-6f2e9d4a7b8c'
 
 # Author of this module
 Author = 'Tom Mortiboys'
@@ -21,28 +21,32 @@ CompanyName = 'M365 Project Delivery'
 Copyright = '(c) Tom Mortiboys. All rights reserved.'
 
 # Description of the functionality provided by this module
-Description = 'Microsoft Graph and Exchange Online authentication module for M365 User Provisioning Tool'
+Description = 'M365 GUI module providing Windows Forms interface for user provisioning tool'
 
 # Minimum version of the PowerShell engine required by this module
 PowerShellVersion = '7.0'
 
 # Modules that must be imported into the global environment prior to importing this module
-RequiredModules = @('Microsoft.Graph.Authentication', 
-               'Microsoft.Graph.Users', 
-               'Microsoft.Graph.Groups', 
-               'Microsoft.Graph.Identity.DirectoryManagement')
+RequiredModules = @('M365.Authentication', 'M365.UserManagement')
 
-# Functions to export from this module - ALL 9 FUNCTIONS
+# Functions to export from this module - ALL 16 GUI FUNCTIONS
 FunctionsToExport = @(
-    'Connect-ToMicrosoftGraph',
-    'Disconnect-FromMicrosoftGraph', 
-    'Start-TenantDiscovery',
-    'Connect-ExchangeOnlineAtStartup',
-    'Connect-ExchangeOnlineIfNeeded',
-    'Test-ExchangeOnlineModule',
-    'Get-M365AuthenticationStatus',
-    'Get-M365TenantData',
-    'Get-M365ConnectionInfo'
+    'Start-M365ProvisioningTool',
+    'New-MainForm',
+    'New-UserCreationTab',
+    'New-BulkImportTab',
+    'New-TenantDataTab',
+    'New-ActivityLogTab',
+    'Update-StatusLabel',
+    'Update-UIAfterConnection',
+    'Update-UIAfterDisconnection',
+    'Update-DomainDropdown',
+    'Update-ManagerDropdown',
+    'Update-GroupsList',
+    'Update-LicenseDropdown',
+    'Clear-AllDropdowns',
+    'Refresh-TenantDataViews',
+    'Clear-UserCreationForm'
 )
 
 # Cmdlets to export from this module
@@ -58,7 +62,7 @@ AliasesToExport = @()
 PrivateData = @{
     PSData = @{
         # Tags applied to this module
-        Tags = @('M365', 'Authentication', 'MicrosoftGraph', 'ExchangeOnline')
+        Tags = @('M365', 'GUI', 'WindowsForms', 'UserProvisioning')
         
         # External dependent modules of this module
         # ExternalModuleDependencies = @()

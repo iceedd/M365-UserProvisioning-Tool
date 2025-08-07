@@ -24,6 +24,11 @@
 
 .EXAMPLE
     .\M365-UserProvisioning-Enterprise-Fixed.ps1
+
+.REPLACED
+    # Replace ALL $Global: references with module-scoped variables:
+    # Before: $Global:IsConnected
+    # After: $Script:IsConnected
 #>
 
 # ================================
