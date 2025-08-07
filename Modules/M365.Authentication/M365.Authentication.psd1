@@ -75,7 +75,8 @@ RequiredModules = @('Microsoft.Graph.Authentication',
 FunctionsToExport = 'Connect-ToMicrosoftGraph', 'Disconnect-FromMicrosoftGraph', 
                'Start-TenantDiscovery', 'Connect-ExchangeOnlineAtStartup', 
                'Connect-ExchangeOnlineIfNeeded', 'Test-ExchangeOnlineModule', 
-               'Get-M365AuthenticationStatus'
+               'Get-M365AuthenticationStatus', 'Get-M365TenantData',
+                'Get-M365ConnectionInfo'
 
 # Cmdlets to export from this module, for best performance, do not use wildcards and do not delete the entry, use an empty array if there are no cmdlets to export.
 CmdletsToExport = '*'
