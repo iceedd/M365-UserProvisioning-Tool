@@ -1,5 +1,11 @@
 #Requires -Version 7.0
 
+[CmdletBinding()]
+param(
+    [switch]$NoGUI,     # For command-line mode if needed
+    [switch]$TestMode,  # For testing without making changes
+    [switch]$Verbose    # For debugging
+)
 <#
 .SYNOPSIS
     M365 User Provisioning Tool - Enterprise Edition 2025 (FIXED)
