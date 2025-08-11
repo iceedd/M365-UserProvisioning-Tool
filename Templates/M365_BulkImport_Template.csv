@@ -1,0 +1,3 @@
+DisplayName,UserPrincipalName,FirstName,LastName,Department,JobTitle,Office,Manager,LicenseType,Groups,Password,ForcePasswordChange
+John Smith,john.smith@company.com,John,Smith,IT,Developer,United Kingdom - London,manager@company.com,BusinessPremium,"IT Team,Developers",,true
+Jane Doe,jane.doe@company.com,Jane,Doe,HR,Manager,United Kingdom - Manchester,director@company.com,BusinessPremium,"HR Team,Managers",,true

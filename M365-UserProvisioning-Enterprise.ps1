@@ -3,11 +3,12 @@
 [CmdletBinding()]
 param(
     [switch]$NoGUI,     # For command-line mode if needed
-    [switch]$TestMode  # For testing without making changes # For debugging
+    [switch]$TestMode   # For testing without making changes
 )
+
 <#
 .SYNOPSIS
-    M365 User Provisioning Tool - Enterprise Edition 2025 (FIXED)
+    M365 User Provisioning Tool - Enterprise Edition 2025 (COMPLETE WITH BULK IMPORT)
     Comprehensive M365 user management with intelligent tenant discovery
 
 .DESCRIPTION
@@ -19,17 +20,22 @@ param(
     - Clean tabbed interface with pagination
     - Robust error handling and validation
     
-    FIXED: Removes SetCompatibleTextRenderingDefault call that caused initialization errors
+    FEATURES:
+    - Single user creation with full property support
+    - Bulk CSV import with progress tracking
+    - Dry run testing capabilities
+    - Comprehensive tenant data discovery
+    - Activity logging
 
 .NOTES
-    Version: 3.0.2025-FIXED
+    Version: 3.1.2025-COMPLETE
     Author: Enterprise Solutions Team
     PowerShell: 7.0+ Required
     Dependencies: Microsoft Graph PowerShell SDK V2.28+, Exchange Online PowerShell
     Last Updated: August 2025
 
 .EXAMPLE
-    .\M365-UserProvisioning-Enterprise-Fixed.ps1
+    .\M365-UserProvisioning-Enterprise.ps1
 #>
 
 # ================================
@@ -50,6 +56,17 @@ $Global:AcceptedDomains = @()
 $Global:CurrentPage = 1
 $Global:PageSize = 50
 $Global:TotalItems = 0
+
+# Bulk Import Variables
+$Global:ImportData = $null
+$Script:FilePathTextBox = $null
+$Script:PreviewDataGrid = $null
+$Script:ProgressBar = $null
+$Script:ProgressLabel = $null
+$Script:ProgressDetails = $null
+$Script:ImportButton = $null
+$Script:DryRunCheckBox = $null
+$Script:SkipDuplicatesCheckBox = $null
 
 # UK-based locations configuration
 $Global:UKLocations = @(
@@ -87,7 +104,7 @@ $Global:ActivityLog = @()
 
 Write-Host "M365 User Provisioning Tool - Enterprise Edition 2025" -ForegroundColor Green
 Write-Host "====================================================" -ForegroundColor Cyan
-Write-Host "🔧 FIXED VERSION - No SetCompatibleTextRenderingDefault" -ForegroundColor Yellow
+Write-Host "🔧 COMPLETE VERSION - Single User + Bulk CSV Import" -ForegroundColor Yellow
 Write-Host ""
 
 try {
@@ -497,6 +514,198 @@ function Generate-SecurePassword {
 }
 
 # ================================
+# BULK IMPORT FUNCTIONS
+# ================================
+
+function Validate-CSVFile {
+    param([string]$FilePath)
+    
+    try {
+        $Script:ProgressLabel.Text = "Validating CSV file..."
+        
+        # Read and parse CSV
+        $CSVData = Import-Csv -Path $FilePath -ErrorAction Stop
+        
+        if ($CSVData.Count -eq 0) {
+            [System.Windows.Forms.MessageBox]::Show("CSV file is empty!", "Validation Error", "OK", "Error")
+            return
+        }
+        
+        # Check required columns
+        $RequiredColumns = @("DisplayName", "UserPrincipalName", "FirstName", "LastName")
+        $CSVColumns = $CSVData[0].PSObject.Properties.Name
+        $MissingColumns = $RequiredColumns | Where-Object { $_ -notin $CSVColumns }
+        
+        if ($MissingColumns.Count -gt 0) {
+            $ErrorMsg = "Missing required columns: $($MissingColumns -join ', ')"
+            [System.Windows.Forms.MessageBox]::Show($ErrorMsg, "Validation Error", "OK", "Error")
+            return
+        }
+        
+        # Display preview
+        $Script:PreviewDataGrid.DataSource = $CSVData
+        $Script:ImportButton.Enabled = $true
+        $Script:ProgressLabel.Text = "CSV validated successfully - $($CSVData.Count) users found"
+        
+        # Store data globally for import
+        $Global:ImportData = $CSVData
+        
+    }
+    catch {
+        [System.Windows.Forms.MessageBox]::Show("Error reading CSV file: $($_.Exception.Message)", "File Error", "OK", "Error")
+        $Script:ProgressLabel.Text = "CSV validation failed"
+    }
+}
+
+function Create-CSVTemplate {
+    try {
+        $SaveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+        $SaveFileDialog.Filter = "CSV files (*.csv)|*.csv"
+        $SaveFileDialog.Title = "Save CSV Template"
+        $SaveFileDialog.FileName = "M365_BulkImport_Template.csv"
+        
+        if ($SaveFileDialog.ShowDialog() -eq "OK") {
+            $TemplateContent = @"
+DisplayName,UserPrincipalName,FirstName,LastName,Department,JobTitle,Office,Manager,LicenseType,Groups,Password,ForcePasswordChange
+John Smith,john.smith@company.com,John,Smith,IT,Developer,United Kingdom - London,manager@company.com,BusinessPremium,"IT Team,Developers",,true
+Jane Doe,jane.doe@company.com,Jane,Doe,HR,Manager,United Kingdom - Manchester,director@company.com,BusinessPremium,"HR Team,Managers",,true
+"@
+            
+            $TemplateContent | Set-Content -Path $SaveFileDialog.FileName -Encoding UTF8
+            [System.Windows.Forms.MessageBox]::Show("CSV template saved successfully!", "Template Created", "OK", "Information")
+        }
+    }
+    catch {
+        [System.Windows.Forms.MessageBox]::Show("Error creating template: $($_.Exception.Message)", "Template Error", "OK", "Error")
+    }
+}
+
+function Start-BulkUserImport {
+    if (-not $Global:ImportData) {
+        [System.Windows.Forms.MessageBox]::Show("No CSV data loaded!", "Import Error", "OK", "Error")
+        return
+    }
+    
+    $IsDryRun = $Script:DryRunCheckBox.Checked
+    $SkipDuplicates = $Script:SkipDuplicatesCheckBox.Checked
+    
+    $TotalUsers = $Global:ImportData.Count
+    $Script:ProgressBar.Maximum = $TotalUsers
+    $Script:ProgressBar.Value = 0
+    
+    $SuccessCount = 0
+    $ErrorCount = 0
+    $SkipCount = 0
+    
+    $Script:ImportButton.Enabled = $false
+    $Script:ProgressDetails.Text = ""
+    
+    foreach ($User in $Global:ImportData) {
+        $CurrentIndex = [array]::IndexOf($Global:ImportData, $User) + 1
+        
+        try {
+            $Script:ProgressLabel.Text = "Processing user $CurrentIndex of $TotalUsers : $($User.DisplayName)"
+            $Script:ProgressBar.Value = $CurrentIndex
+            
+            # Check if user already exists
+            if ($SkipDuplicates) {
+                $ExistingUser = Get-MgUser -Filter "userPrincipalName eq '$($User.UserPrincipalName)'" -ErrorAction SilentlyContinue
+                if ($ExistingUser) {
+                    $Script:ProgressDetails.Text += "SKIPPED: $($User.DisplayName) - User already exists`r`n"
+                    $SkipCount++
+                    continue
+                }
+            }
+            
+            if ($IsDryRun) {
+                # Dry run - just validate
+                $Script:ProgressDetails.Text += "DRY RUN: $($User.DisplayName) - Would create user`r`n"
+                $SuccessCount++
+            }
+            else {
+                # Create the user using your existing New-M365User function
+                $Result = New-BulkM365User -UserData $User
+                if ($Result) {
+                    $Script:ProgressDetails.Text += "SUCCESS: $($User.DisplayName) created`r`n"
+                    $SuccessCount++
+                }
+                else {
+                    $Script:ProgressDetails.Text += "ERROR: $($User.DisplayName) failed to create`r`n"
+                    $ErrorCount++
+                }
+            }
+            
+            # Scroll to bottom
+            $Script:ProgressDetails.SelectionStart = $Script:ProgressDetails.Text.Length
+            $Script:ProgressDetails.ScrollToCaret()
+            
+            # Update UI
+            [System.Windows.Forms.Application]::DoEvents()
+            
+        }
+        catch {
+            $Script:ProgressDetails.Text += "ERROR: $($User.DisplayName) - $($_.Exception.Message)`r`n"
+            $ErrorCount++
+        }
+    }
+    
+    # Final summary
+    $Script:ProgressLabel.Text = "Import completed - Success: $SuccessCount, Errors: $ErrorCount, Skipped: $SkipCount"
+    $Script:ImportButton.Enabled = $true
+    
+    [System.Windows.Forms.MessageBox]::Show(
+        "Import completed!`n`nSuccess: $SuccessCount`nErrors: $ErrorCount`nSkipped: $SkipCount",
+        "Import Complete",
+        "OK",
+        "Information"
+    )
+}
+
+function New-BulkM365User {
+    param($UserData)
+    
+    try {
+        # Generate password if not provided
+        $Password = if ($UserData.Password) { $UserData.Password } else { Generate-SecurePassword }
+        
+        # Parse groups if provided
+        $Groups = @()
+        if ($UserData.Groups) {
+            $Groups = $UserData.Groups -split ',' | ForEach-Object { $_.Trim() }
+        }
+        
+        # Extract domain from UPN
+        $Domain = ($UserData.UserPrincipalName -split '@')[1]
+        $Username = ($UserData.UserPrincipalName -split '@')[0]
+        
+        # Call your existing New-M365User function
+        $Result = New-M365User -FirstName $UserData.FirstName `
+                              -LastName $UserData.LastName `
+                              -Username $Username `
+                              -Domain $Domain `
+                              -Password $Password `
+                              -Department $UserData.Department `
+                              -JobTitle $UserData.JobTitle `
+                              -Office $UserData.Office `
+                              -Manager $UserData.Manager `
+                              -LicenseType $UserData.LicenseType `
+                              -Groups $Groups
+        
+        return $true
+    }
+    catch {
+        Write-Host "Error creating user $($UserData.DisplayName): $($_.Exception.Message)" -ForegroundColor Red
+        Add-ActivityLog "Bulk Import" "Failed" "Error creating $($UserData.DisplayName): $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Cancel-BulkImport {
+    $Script:ProgressLabel.Text = "Import cancelled"
+    $Script:ImportButton.Enabled = $true
+}
+
+# ================================
 # UI HELPER FUNCTIONS
 # ================================
 
@@ -629,95 +838,209 @@ $($Global:ActivityLog | Select-Object -Last 10 | ForEach-Object { "$($_.Timestam
 }
 
 # ================================
-# MAIN FORM CREATION
+# TAB CREATION FUNCTIONS
 # ================================
 
-function New-MainForm {
+function New-BulkImportTab {
     <#
     .SYNOPSIS
-        Creates the main application form with all tabs and controls
+        Creates the Bulk CSV Import tab
     #>
     
-    Write-Host "🖥️  Creating main application window..." -ForegroundColor Green
+    $Tab = New-Object System.Windows.Forms.TabPage
+    $Tab.Text = "📊 Bulk Import"
+    $Tab.Padding = New-Object System.Windows.Forms.Padding(10)
     
-    # Main Form
-    $Script:MainForm = New-Object System.Windows.Forms.Form
-    $Script:MainForm.Text = "M365 User Provisioning Tool - Enterprise Edition 2025"
-    $Script:MainForm.Size = New-Object System.Drawing.Size(1400, 900)
-    $Script:MainForm.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
-    $Script:MainForm.MinimumSize = New-Object System.Drawing.Size(1200, 800)
-    $Script:MainForm.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-    $Script:MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
+    # Main scrollable panel
+    $ScrollPanel = New-Object System.Windows.Forms.Panel
+    $ScrollPanel.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $ScrollPanel.AutoScroll = $true
     
-    # Try to set application icon
-    try {
-        $Script:MainForm.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon("$env:SystemRoot\System32\shell32.dll")
-    }
-    catch {
-        Write-Verbose "Could not set application icon"
-    }
+    # Instructions
+    $InstructionsGroup = New-Object System.Windows.Forms.GroupBox
+    $InstructionsGroup.Text = "CSV Import Instructions"
+    $InstructionsGroup.Location = New-Object System.Drawing.Point(10, 10)
+    $InstructionsGroup.Size = New-Object System.Drawing.Size(900, 150)
+    $InstructionsGroup.Font = New-Object System.Drawing.Font("Segoe UI", 10)
     
-    # Status Strip
-    $Script:StatusStrip = New-Object System.Windows.Forms.StatusStrip
-    $Script:StatusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
-    $Script:StatusLabel.Text = "Ready - Click Connect to start tenant discovery"
-    $Script:StatusLabel.Spring = $true
-    $Script:StatusStrip.Items.Add($Script:StatusLabel) | Out-Null
+    $InstructionsText = New-Object System.Windows.Forms.RichTextBox
+    $InstructionsText.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $InstructionsText.ReadOnly = $true
+    $InstructionsText.Text = @"
+CSV Format Requirements:
+
+REQUIRED COLUMNS:
+• DisplayName - Full name of the user (e.g., "John Smith")
+• UserPrincipalName - Email/login name (e.g., "john.smith@company.com")  
+• FirstName - User's first name
+• LastName - User's last name
+
+OPTIONAL COLUMNS:
+• Department - User's department
+• JobTitle - User's job title
+• Office - Office location (must match dropdown values)
+• Manager - Manager's UPN (e.g., "manager@company.com")
+• LicenseType - License to assign (BusinessBasic, BusinessPremium, BusinessStandard, E3, E5)
+• Groups - Comma-separated group names (e.g., "IT Team,Developers")
+• Password - Custom password (if blank, auto-generated)
+• ForcePasswordChange - true/false for password change requirement
+
+EXAMPLE CSV LINE:
+John Smith,john.smith@company.com,John,Smith,IT,Developer,United Kingdom - London,manager@company.com,BusinessPremium,"IT Team,Developers",TempPass123!,true
+"@
+    $InstructionsText.BackColor = [System.Drawing.Color]::LightYellow
+    $InstructionsText.Font = New-Object System.Drawing.Font("Consolas", 9)
     
-    # Tab Control
-    $Script:TabControl = New-Object System.Windows.Forms.TabControl
-    $Script:TabControl.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $Script:TabControl.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $InstructionsGroup.Controls.Add($InstructionsText)
     
-    # Create tabs
-    $UserCreationTab = New-UserCreationTab
-    $TenantDataTab = New-TenantDataTab  
-    $ActivityLogTab = New-ActivityLogTab
+    # File Selection
+    $FileSelectionGroup = New-Object System.Windows.Forms.GroupBox
+    $FileSelectionGroup.Text = "File Selection"
+    $FileSelectionGroup.Location = New-Object System.Drawing.Point(10, 170)
+    $FileSelectionGroup.Size = New-Object System.Drawing.Size(900, 80)
+    $FileSelectionGroup.Font = New-Object System.Drawing.Font("Segoe UI", 10)
     
-    # Add tabs to control
-    $Script:TabControl.TabPages.Add($UserCreationTab)
-    $Script:TabControl.TabPages.Add($TenantDataTab)
-    $Script:TabControl.TabPages.Add($ActivityLogTab)
+    $FilePathLabel = New-Object System.Windows.Forms.Label
+    $FilePathLabel.Text = "CSV File:"
+    $FilePathLabel.Location = New-Object System.Drawing.Point(15, 30)
+    $FilePathLabel.Size = New-Object System.Drawing.Size(70, 20)
     
-    # Add controls to form
-    $Script:MainForm.Controls.Add($Script:TabControl)
-    $Script:MainForm.Controls.Add($Script:StatusStrip)
+    $Script:FilePathTextBox = New-Object System.Windows.Forms.TextBox
+    $Script:FilePathTextBox.Location = New-Object System.Drawing.Point(90, 28)
+    $Script:FilePathTextBox.Size = New-Object System.Drawing.Size(500, 23)
+    $Script:FilePathTextBox.ReadOnly = $true
     
-    # Form events
-    $Script:MainForm.Add_Load({
-        Update-StatusLabel "Application started - Ready to connect to Microsoft 365"
-        Add-ActivityLog "Application" "Started" "M365 User Provisioning Tool launched"
-    })
-    
-    $Script:MainForm.Add_FormClosing({
-        param($sender, $e)
+    $BrowseButton = New-Object System.Windows.Forms.Button
+    $BrowseButton.Text = "Browse..."
+    $BrowseButton.Location = New-Object System.Drawing.Point(600, 27)
+    $BrowseButton.Size = New-Object System.Drawing.Size(100, 25)
+    $BrowseButton.BackColor = [System.Drawing.Color]::FromArgb(0, 120, 215)
+    $BrowseButton.ForeColor = [System.Drawing.Color]::White
+    $BrowseButton.FlatStyle = "Flat"
+    $BrowseButton.Add_Click({
+        $OpenFileDialog = New-Object System.Windows.Forms.OpenFileDialog
+        $OpenFileDialog.Filter = "CSV files (*.csv)|*.csv|All files (*.*)|*.*"
+        $OpenFileDialog.Title = "Select CSV File for Bulk Import"
         
-        if ($Global:IsConnected) {
-            $Result = [System.Windows.Forms.MessageBox]::Show(
-                "You are currently connected to Microsoft 365. Disconnect and exit?",
-                "Confirm Exit",
-                [System.Windows.Forms.MessageBoxButtons]::YesNo,
-                [System.Windows.Forms.MessageBoxIcon]::Question
-            )
-            
-            if ($Result -eq [System.Windows.Forms.DialogResult]::No) {
-                $e.Cancel = $true
-                return
-            }
-            
-            try {
-                Disconnect-MgGraph -ErrorAction SilentlyContinue
-            }
-            catch {
-                # Ignore disconnect errors on exit
-            }
+        if ($OpenFileDialog.ShowDialog() -eq "OK") {
+            $Script:FilePathTextBox.Text = $OpenFileDialog.FileName
+            Validate-CSVFile $OpenFileDialog.FileName
         }
-        
-        Add-ActivityLog "Application" "Closed" "User closed application"
-        Write-Host "👋 Application closing..." -ForegroundColor Yellow
     })
     
-    return $Script:MainForm
+    $DownloadTemplateButton = New-Object System.Windows.Forms.Button
+    $DownloadTemplateButton.Text = "Download Template"
+    $DownloadTemplateButton.Location = New-Object System.Drawing.Point(710, 27)
+    $DownloadTemplateButton.Size = New-Object System.Drawing.Size(130, 25)
+    $DownloadTemplateButton.BackColor = [System.Drawing.Color]::FromArgb(40, 167, 69)
+    $DownloadTemplateButton.ForeColor = [System.Drawing.Color]::White
+    $DownloadTemplateButton.FlatStyle = "Flat"
+    $DownloadTemplateButton.Add_Click({ Create-CSVTemplate })
+    
+    $FileSelectionGroup.Controls.AddRange(@($FilePathLabel, $Script:FilePathTextBox, $BrowseButton, $DownloadTemplateButton))
+    
+    # Preview Section
+    $PreviewGroup = New-Object System.Windows.Forms.GroupBox
+    $PreviewGroup.Text = "CSV Preview & Validation"
+    $PreviewGroup.Location = New-Object System.Drawing.Point(10, 260)
+    $PreviewGroup.Size = New-Object System.Drawing.Size(900, 200)
+    
+    $Script:PreviewDataGrid = New-Object System.Windows.Forms.DataGridView
+    $Script:PreviewDataGrid.Location = New-Object System.Drawing.Point(10, 25)
+    $Script:PreviewDataGrid.Size = New-Object System.Drawing.Size(880, 165)
+    $Script:PreviewDataGrid.ReadOnly = $true
+    $Script:PreviewDataGrid.AllowUserToAddRows = $false
+    $Script:PreviewDataGrid.AllowUserToDeleteRows = $false
+    $Script:PreviewDataGrid.SelectionMode = "FullRowSelect"
+    $Script:PreviewDataGrid.AutoSizeColumnsMode = "AllCells"
+    
+    $PreviewGroup.Controls.Add($Script:PreviewDataGrid)
+    
+    # Import Options
+    $OptionsGroup = New-Object System.Windows.Forms.GroupBox
+    $OptionsGroup.Text = "Import Options"
+    $OptionsGroup.Location = New-Object System.Drawing.Point(10, 470)
+    $OptionsGroup.Size = New-Object System.Drawing.Size(900, 80)
+    
+    $Script:DryRunCheckBox = New-Object System.Windows.Forms.CheckBox
+    $Script:DryRunCheckBox.Text = "Dry Run (validate only, don't create users)"
+    $Script:DryRunCheckBox.Location = New-Object System.Drawing.Point(15, 25)
+    $Script:DryRunCheckBox.Size = New-Object System.Drawing.Size(300, 20)
+    $Script:DryRunCheckBox.Checked = $true
+    
+    $Script:SkipDuplicatesCheckBox = New-Object System.Windows.Forms.CheckBox
+    $Script:SkipDuplicatesCheckBox.Text = "Skip duplicate users (don't overwrite)"
+    $Script:SkipDuplicatesCheckBox.Location = New-Object System.Drawing.Point(15, 50)
+    $Script:SkipDuplicatesCheckBox.Size = New-Object System.Drawing.Size(300, 20)
+    $Script:SkipDuplicatesCheckBox.Checked = $true
+    
+    $OptionsGroup.Controls.AddRange(@($Script:DryRunCheckBox, $Script:SkipDuplicatesCheckBox))
+    
+    # Progress Section
+    $ProgressGroup = New-Object System.Windows.Forms.GroupBox
+    $ProgressGroup.Text = "Import Progress"
+    $ProgressGroup.Location = New-Object System.Drawing.Point(10, 560)
+    $ProgressGroup.Size = New-Object System.Drawing.Size(900, 120)
+    
+    $Script:ProgressBar = New-Object System.Windows.Forms.ProgressBar
+    $Script:ProgressBar.Location = New-Object System.Drawing.Point(15, 25)
+    $Script:ProgressBar.Size = New-Object System.Drawing.Size(870, 20)
+    $Script:ProgressBar.Style = "Continuous"
+    
+    $Script:ProgressLabel = New-Object System.Windows.Forms.Label
+    $Script:ProgressLabel.Location = New-Object System.Drawing.Point(15, 50)
+    $Script:ProgressLabel.Size = New-Object System.Drawing.Size(870, 20)
+    $Script:ProgressLabel.Text = "Ready to import..."
+    
+    $Script:ProgressDetails = New-Object System.Windows.Forms.TextBox
+    $Script:ProgressDetails.Location = New-Object System.Drawing.Point(15, 75)
+    $Script:ProgressDetails.Size = New-Object System.Drawing.Size(870, 35)
+    $Script:ProgressDetails.Multiline = $true
+    $Script:ProgressDetails.ReadOnly = $true
+    $Script:ProgressDetails.ScrollBars = "Vertical"
+    $Script:ProgressDetails.Font = New-Object System.Drawing.Font("Consolas", 8)
+    
+    $ProgressGroup.Controls.AddRange(@($Script:ProgressBar, $Script:ProgressLabel, $Script:ProgressDetails))
+    
+    # Action Buttons
+    $ButtonPanel = New-Object System.Windows.Forms.Panel
+    $ButtonPanel.Location = New-Object System.Drawing.Point(10, 690)
+    $ButtonPanel.Size = New-Object System.Drawing.Size(900, 50)
+    
+    $Script:ImportButton = New-Object System.Windows.Forms.Button
+    $Script:ImportButton.Text = "🚀 Start Import"
+    $Script:ImportButton.Location = New-Object System.Drawing.Point(350, 10)
+    $Script:ImportButton.Size = New-Object System.Drawing.Size(120, 35)
+    $Script:ImportButton.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
+    $Script:ImportButton.BackColor = [System.Drawing.Color]::FromArgb(40, 167, 69)
+    $Script:ImportButton.ForeColor = [System.Drawing.Color]::White
+    $Script:ImportButton.FlatStyle = "Flat"
+    $Script:ImportButton.Enabled = $false
+    $Script:ImportButton.Add_Click({ Start-BulkUserImport })
+    
+    $CancelButton = New-Object System.Windows.Forms.Button
+    $CancelButton.Text = "❌ Cancel"
+    $CancelButton.Location = New-Object System.Drawing.Point(480, 10)
+    $CancelButton.Size = New-Object System.Drawing.Size(100, 35)
+    $CancelButton.BackColor = [System.Drawing.Color]::FromArgb(220, 53, 69)
+    $CancelButton.ForeColor = [System.Drawing.Color]::White
+    $CancelButton.FlatStyle = "Flat"
+    $CancelButton.Add_Click({ Cancel-BulkImport })
+    
+    $ButtonPanel.Controls.AddRange(@($Script:ImportButton, $CancelButton))
+    
+    # Add all controls to scroll panel
+    $ScrollPanel.Controls.AddRange(@(
+        $InstructionsGroup,
+        $FileSelectionGroup, 
+        $PreviewGroup,
+        $OptionsGroup,
+        $ProgressGroup,
+        $ButtonPanel
+    ))
+    
+    $Tab.Controls.Add($ScrollPanel)
+    return $Tab
 }
 
 function New-UserCreationTab {
@@ -1081,6 +1404,100 @@ function New-ActivityLogTab {
 }
 
 # ================================
+# MAIN FORM CREATION
+# ================================
+
+function New-MainForm {
+    <#
+    .SYNOPSIS
+        Creates the main application form with all tabs and controls
+    #>
+    
+    Write-Host "🖥️  Creating main application window..." -ForegroundColor Green
+    
+    # Main Form
+    $Script:MainForm = New-Object System.Windows.Forms.Form
+    $Script:MainForm.Text = "M365 User Provisioning Tool - Enterprise Edition 2025 (Complete)"
+    $Script:MainForm.Size = New-Object System.Drawing.Size(1400, 900)
+    $Script:MainForm.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
+    $Script:MainForm.MinimumSize = New-Object System.Drawing.Size(1200, 800)
+    $Script:MainForm.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $Script:MainForm.WindowState = [System.Windows.Forms.FormWindowState]::Maximized
+    
+    # Try to set application icon
+    try {
+        $Script:MainForm.Icon = [System.Drawing.Icon]::ExtractAssociatedIcon("$env:SystemRoot\System32\shell32.dll")
+    }
+    catch {
+        Write-Verbose "Could not set application icon"
+    }
+    
+    # Status Strip
+    $Script:StatusStrip = New-Object System.Windows.Forms.StatusStrip
+    $Script:StatusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
+    $Script:StatusLabel.Text = "Ready - Click Connect to start tenant discovery"
+    $Script:StatusLabel.Spring = $true
+    $Script:StatusStrip.Items.Add($Script:StatusLabel) | Out-Null
+    
+    # Tab Control
+    $Script:TabControl = New-Object System.Windows.Forms.TabControl
+    $Script:TabControl.Dock = [System.Windows.Forms.DockStyle]::Fill
+    $Script:TabControl.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    
+    # Create tabs
+    $UserCreationTab = New-UserCreationTab
+    $BulkImportTab = New-BulkImportTab
+    $TenantDataTab = New-TenantDataTab  
+    $ActivityLogTab = New-ActivityLogTab
+    
+    # Add tabs to control
+    $Script:TabControl.TabPages.Add($UserCreationTab)
+    $Script:TabControl.TabPages.Add($BulkImportTab)
+    $Script:TabControl.TabPages.Add($TenantDataTab)
+    $Script:TabControl.TabPages.Add($ActivityLogTab)
+    
+    # Add controls to form
+    $Script:MainForm.Controls.Add($Script:TabControl)
+    $Script:MainForm.Controls.Add($Script:StatusStrip)
+    
+    # Form events
+    $Script:MainForm.Add_Load({
+        Update-StatusLabel "Application started - Ready to connect to Microsoft 365"
+        Add-ActivityLog "Application" "Started" "M365 User Provisioning Tool launched"
+    })
+    
+    $Script:MainForm.Add_FormClosing({
+        param($sender, $e)
+        
+        if ($Global:IsConnected) {
+            $Result = [System.Windows.Forms.MessageBox]::Show(
+                "You are currently connected to Microsoft 365. Disconnect and exit?",
+                "Confirm Exit",
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Question
+            )
+            
+            if ($Result -eq [System.Windows.Forms.DialogResult]::No) {
+                $e.Cancel = $true
+                return
+            }
+            
+            try {
+                Disconnect-MgGraph -ErrorAction SilentlyContinue
+            }
+            catch {
+                # Ignore disconnect errors on exit
+            }
+        }
+        
+        Add-ActivityLog "Application" "Closed" "User closed application"
+        Write-Host "👋 Application closing..." -ForegroundColor Yellow
+    })
+    
+    return $Script:MainForm
+}
+
+# ================================
 # MAIN APPLICATION ENTRY POINT
 # ================================
 
@@ -1096,13 +1513,15 @@ try {
         Write-Host "📱 Starting application..." -ForegroundColor Green
         Write-Host ""
         Write-Host "🎯 FEATURES AVAILABLE:" -ForegroundColor Cyan
+        Write-Host "   • Single user creation with full property support" -ForegroundColor White
+        Write-Host "   • Bulk CSV import with progress tracking" -ForegroundColor White
         Write-Host "   • Comprehensive tenant data discovery" -ForegroundColor White
-        Write-Host "   • User creation with full property support" -ForegroundColor White
         Write-Host "   • License assignment via CustomAttribute1" -ForegroundColor White
         Write-Host "   • Group membership management" -ForegroundColor White
         Write-Host "   • UK location support" -ForegroundColor White
         Write-Host "   • Manager assignment" -ForegroundColor White
         Write-Host "   • Activity logging" -ForegroundColor White
+        Write-Host "   • Dry run testing capabilities" -ForegroundColor White
         Write-Host ""
         
         # Run the application
