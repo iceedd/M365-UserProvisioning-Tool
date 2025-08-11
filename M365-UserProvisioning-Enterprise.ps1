@@ -3,8 +3,7 @@
 [CmdletBinding()]
 param(
     [switch]$NoGUI,     # For command-line mode if needed
-    [switch]$TestMode,  # For testing without making changes
-    [switch]$Verbose    # For debugging
+    [switch]$TestMode  # For testing without making changes # For debugging
 )
 <#
 .SYNOPSIS
