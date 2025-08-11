@@ -8,8 +8,8 @@ param(
 
 <#
 .SYNOPSIS
-    M365 User Provisioning Tool - Enterprise Edition 2025 (COMPLETE WITH BULK IMPORT)
-    Comprehensive M365 user management with intelligent tenant discovery
+    M365 User Provisioning Tool - Enterprise Edition 2025 (COMPLETE WITH BULK IMPORT + EXCHANGE ONLINE)
+    Comprehensive M365 user management with intelligent tenant discovery and enhanced Exchange functionality
 
 .DESCRIPTION
     Advanced user provisioning tool with:
@@ -19,19 +19,23 @@ param(
     - UK-based location management
     - Clean tabbed interface with pagination
     - Robust error handling and validation
+    - ENHANCED: M365.ExchangeOnline module integration for accurate Exchange data
     
     FEATURES:
     - Single user creation with full property support
     - Bulk CSV import with progress tracking
     - Dry run testing capabilities
-    - Comprehensive tenant data discovery
+    - Comprehensive tenant data discovery with enhanced Exchange functionality
     - Activity logging
+    - Accurate shared mailbox detection
+    - Complete distribution list management
+    - Mail-enabled security group support
 
 .NOTES
-    Version: 3.1.2025-COMPLETE
+    Version: 3.1.2025-COMPLETE-ENHANCED
     Author: Enterprise Solutions Team
     PowerShell: 7.0+ Required
-    Dependencies: Microsoft Graph PowerShell SDK V2.28+, Exchange Online PowerShell
+    Dependencies: Microsoft Graph PowerShell SDK V2.28+, Exchange Online PowerShell, M365.ExchangeOnline Module
     Last Updated: August 2025
 
 .EXAMPLE
@@ -56,6 +60,7 @@ $Global:AcceptedDomains = @()
 $Global:CurrentPage = 1
 $Global:PageSize = 50
 $Global:TotalItems = 0
+$Global:ExchangeModuleAvailable = $false  # NEW: Track M365.ExchangeOnline module availability
 
 # Bulk Import Variables
 $Global:ImportData = $null
@@ -102,9 +107,9 @@ $Global:ActivityLog = @()
 # ASSEMBLY LOADING & INITIALIZATION (FIXED)
 # ================================
 
-Write-Host "M365 User Provisioning Tool - Enterprise Edition 2025" -ForegroundColor Green
-Write-Host "====================================================" -ForegroundColor Cyan
-Write-Host "🔧 COMPLETE VERSION - Single User + Bulk CSV Import" -ForegroundColor Yellow
+Write-Host "M365 User Provisioning Tool - Enterprise Edition 2025 (Enhanced)" -ForegroundColor Green
+Write-Host "=================================================================" -ForegroundColor Cyan
+Write-Host "🔧 COMPLETE VERSION - Single User + Bulk CSV Import + Enhanced Exchange" -ForegroundColor Yellow
 Write-Host ""
 
 try {
@@ -164,16 +169,50 @@ foreach ($Module in $RequiredModules) {
 }
 
 Write-Host "✅ Required modules processed" -ForegroundColor Green
+
+# ================================
+# ENHANCED: M365.EXCHANGEONLINE MODULE LOADING
+# ================================
+
+Write-Host ""
+Write-Host "📧 Loading Enhanced Exchange Online Module..." -ForegroundColor Cyan
+
+# Load custom M365.ExchangeOnline module (if available)
+try {
+    if (Test-Path ".\Modules\M365.ExchangeOnline\M365.ExchangeOnline.psd1") {
+        Write-Host "   📤 Loading M365.ExchangeOnline module..." -ForegroundColor Yellow
+        Import-Module ".\Modules\M365.ExchangeOnline\M365.ExchangeOnline.psd1" -Force -ErrorAction Stop
+        Write-Host "   ✅ M365.ExchangeOnline module loaded successfully!" -ForegroundColor Green
+        Write-Host "   🚀 Enhanced Exchange functionality available!" -ForegroundColor Green
+        $Global:ExchangeModuleAvailable = $true
+        
+        # Test if key functions are available
+        $ExchangeFunctions = Get-Command -Module M365.ExchangeOnline -ErrorAction SilentlyContinue
+        Write-Host "   📊 Available Exchange functions: $($ExchangeFunctions.Count)" -ForegroundColor Cyan
+    }
+    else {
+        Write-Host "   ⚠️  M365.ExchangeOnline module not found at .\Modules\M365.ExchangeOnline\" -ForegroundColor Yellow
+        Write-Host "   📋 Using built-in Exchange functionality instead" -ForegroundColor Yellow
+        $Global:ExchangeModuleAvailable = $false
+    }
+}
+catch {
+    Write-Warning "⚠️  Failed to load M365.ExchangeOnline: $($_.Exception.Message)"
+    Write-Host "   📋 Using built-in Exchange functionality instead" -ForegroundColor Yellow
+    $Global:ExchangeModuleAvailable = $false
+}
+
 Write-Host ""
 
 # ================================
-# TENANT DISCOVERY FUNCTIONS
+# ENHANCED TENANT DISCOVERY FUNCTIONS
 # ================================
 
 function Get-TenantData {
     <#
     .SYNOPSIS
         Performs comprehensive tenant discovery to populate all dropdowns and lists
+        ENHANCED with M365.ExchangeOnline module integration for accurate Exchange data
     #>
     
     try {
@@ -197,28 +236,54 @@ function Get-TenantData {
         $Global:AvailableGroups = Get-MgGroup -All -Property "DisplayName,GroupTypes,SecurityEnabled,MailEnabled" |
             Sort-Object DisplayName
         
-        # Get distribution groups
-        Write-Host "   📧 Getting distribution groups..." -ForegroundColor Yellow
-        try {
-            $Global:DistributionLists = Get-DistributionGroup -ResultSize Unlimited | Sort-Object Name
-            $Global:MailEnabledSecurityGroups = Get-DistributionGroup -RecipientTypeDetails MailUniversalSecurityGroup -ResultSize Unlimited | Sort-Object Name
-        }
-        catch {
-            Write-Warning "Exchange Online not available - skipping distribution groups"
-            $Global:DistributionLists = @()
-            $Global:MailEnabledSecurityGroups = @()
-        }
+        # ENHANCED EXCHANGE ONLINE DATA DISCOVERY
+        Write-Host "   📧 Getting Exchange Online data..." -ForegroundColor Yellow
         
-        # Get mailboxes
-        Write-Host "   📪 Getting mailboxes..." -ForegroundColor Yellow
-        try {
-            $Global:AvailableMailboxes = Get-Mailbox -ResultSize Unlimited | Sort-Object Name
-            $Global:SharedMailboxes = Get-Mailbox -RecipientTypeDetails SharedMailbox -ResultSize Unlimited | Sort-Object Name
+        # Check if M365.ExchangeOnline module is available
+        if ($Global:ExchangeModuleAvailable -and (Get-Command "Get-AllExchangeData" -ErrorAction SilentlyContinue)) {
+            Write-Host "      🔄 Using M365.ExchangeOnline module for enhanced data discovery..." -ForegroundColor Cyan
+            
+            try {
+                # Use the enhanced Exchange module
+                $ExchangeData = Get-AllExchangeData
+                
+                # Populate global variables with enhanced data
+                $Global:SharedMailboxes = $ExchangeData.SharedMailboxes
+                $Global:DistributionLists = $ExchangeData.DistributionLists  
+                $Global:MailEnabledSecurityGroups = $ExchangeData.MailEnabledSecurityGroups
+                
+                # Merge accepted domains (avoid duplicates)
+                $ExistingDomains = $Global:AcceptedDomains | Select-Object -ExpandProperty Id
+                $NewDomains = $ExchangeData.AcceptedDomains | Where-Object { $_.DomainName -notin $ExistingDomains }
+                if ($NewDomains) {
+                    $Global:AcceptedDomains += $NewDomains | Select-Object @{Name='Id';Expression={$_.DomainName}}, @{Name='IsDefault';Expression={$_.Default}}
+                }
+                
+                # Set mailboxes from Exchange data
+                try {
+                    $UserMailboxes = Get-EXOMailbox -RecipientTypeDetails UserMailbox -ResultSize 50 | 
+                        Select-Object @{Name='Name';Expression={$_.DisplayName}}, @{Name='EmailAddress';Expression={$_.PrimarySmtpAddress}}
+                    $Global:AvailableMailboxes = $Global:SharedMailboxes + $UserMailboxes
+                }
+                catch {
+                    Write-Warning "Could not get user mailboxes, using shared mailboxes only"
+                    $Global:AvailableMailboxes = $Global:SharedMailboxes
+                }
+                
+                Write-Host "      ✅ Enhanced Exchange data loaded!" -ForegroundColor Green
+                Write-Host "         📊 $($ExchangeData.Summary.SharedMailboxCount) shared mailboxes" -ForegroundColor Gray
+                Write-Host "         📊 $($ExchangeData.Summary.DistributionListCount) distribution lists" -ForegroundColor Gray
+                Write-Host "         📊 $($ExchangeData.Summary.MailEnabledSecurityGroupCount) mail-enabled security groups" -ForegroundColor Gray
+                Write-Host "         📊 $($ExchangeData.Summary.AcceptedDomainCount) Exchange domains" -ForegroundColor Gray
+            }
+            catch {
+                Write-Warning "Enhanced Exchange discovery failed, falling back to standard method: $($_.Exception.Message)"
+                Get-ExchangeDataFallback
+            }
         }
-        catch {
-            Write-Warning "Exchange Online not available - skipping mailbox discovery"
-            $Global:AvailableMailboxes = @()
-            $Global:SharedMailboxes = @()
+        else {
+            Write-Host "      ⚠️  M365.ExchangeOnline module not available - using standard Exchange discovery" -ForegroundColor Yellow
+            Get-ExchangeDataFallback
         }
         
         # Get SharePoint sites
@@ -242,8 +307,9 @@ function Get-TenantData {
         Update-StatusLabel "✅ Tenant discovery completed successfully"
         Write-Host "✅ Tenant data discovery completed" -ForegroundColor Green
         
-        # Log the discovery
-        Add-ActivityLog "Tenant Discovery" "Success" "Discovered: $($Global:AvailableUsers.Count) users, $($Global:AvailableGroups.Count) groups, $($Global:AvailableMailboxes.Count) mailboxes"
+        # Enhanced logging
+        $TotalExchangeItems = $Global:SharedMailboxes.Count + $Global:DistributionLists.Count + $Global:MailEnabledSecurityGroups.Count
+        Add-ActivityLog "Tenant Discovery" "Success" "Discovered: $($Global:AvailableUsers.Count) users, $($Global:AvailableGroups.Count) groups, $($Global:AvailableMailboxes.Count) mailboxes, $TotalExchangeItems Exchange items"
         
     }
     catch {
@@ -258,6 +324,39 @@ function Get-TenantData {
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Warning
         )
+    }
+}
+
+function Get-ExchangeDataFallback {
+    <#
+    .SYNOPSIS
+        Fallback Exchange discovery using standard cmdlets (original method)
+    #>
+    
+    Write-Host "      📋 Using standard Exchange Online cmdlets..." -ForegroundColor Yellow
+    
+    # Get distribution groups (original method)
+    try {
+        $Global:DistributionLists = Get-DistributionGroup -ResultSize Unlimited | Sort-Object Name
+        $Global:MailEnabledSecurityGroups = Get-DistributionGroup -RecipientTypeDetails MailUniversalSecurityGroup -ResultSize Unlimited | Sort-Object Name
+        Write-Host "      ✅ Standard distribution groups loaded: $($Global:DistributionLists.Count) DLs, $($Global:MailEnabledSecurityGroups.Count) MESGs" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Exchange Online not available - skipping distribution groups"
+        $Global:DistributionLists = @()
+        $Global:MailEnabledSecurityGroups = @()
+    }
+    
+    # Get mailboxes (original method)
+    try {
+        $Global:AvailableMailboxes = Get-Mailbox -ResultSize Unlimited | Sort-Object Name
+        $Global:SharedMailboxes = Get-Mailbox -RecipientTypeDetails SharedMailbox -ResultSize Unlimited | Sort-Object Name
+        Write-Host "      ✅ Standard mailboxes loaded: $($Global:AvailableMailboxes.Count) total, $($Global:SharedMailboxes.Count) shared" -ForegroundColor Green
+    }
+    catch {
+        Write-Warning "Exchange Online not available - skipping mailbox discovery"
+        $Global:AvailableMailboxes = @()
+        $Global:SharedMailboxes = @()
     }
 }
 
@@ -303,7 +402,7 @@ function Update-Dropdowns {
         $Script:OfficeDropdown.SelectedIndex = 0
     }
     
-    # Update groups checklist
+    # Update groups checklist (ENHANCED with better formatting)
     $Script:GroupsCheckedListBox.Items.Clear()
     
     # Add security groups
@@ -312,27 +411,30 @@ function Update-Dropdowns {
         $Script:GroupsCheckedListBox.Items.Add($GroupDisplay) | Out-Null
     }
     
-    # Add distribution groups
+    # Add distribution groups (enhanced formatting)
     foreach ($DL in $Global:DistributionLists) {
-        $GroupDisplay = "📧 $($DL.Name) (Distribution List)"
+        $GroupName = if ($DL.Name) { $DL.Name } elseif ($DL.DisplayName) { $DL.DisplayName } else { $DL.ToString() }
+        $GroupDisplay = "📧 $GroupName (Distribution List)"
         $Script:GroupsCheckedListBox.Items.Add($GroupDisplay) | Out-Null
     }
     
-    # Add mail-enabled security groups
+    # Add mail-enabled security groups (enhanced formatting)
     foreach ($MESG in $Global:MailEnabledSecurityGroups) {
-        $GroupDisplay = "🔐 $($MESG.Name) (Mail-Enabled Security)"
+        $GroupName = if ($MESG.Name) { $MESG.Name } elseif ($MESG.DisplayName) { $MESG.DisplayName } else { $MESG.ToString() }
+        $GroupDisplay = "🔐 $GroupName (Mail-Enabled Security)"
         $Script:GroupsCheckedListBox.Items.Add($GroupDisplay) | Out-Null
     }
 }
 
 # ================================
-# USER CREATION FUNCTIONS
+# ENHANCED USER CREATION FUNCTIONS
 # ================================
 
 function New-M365User {
     <#
     .SYNOPSIS
         Creates a new M365 user with all specified properties and group memberships
+        ENHANCED with M365.ExchangeOnline integration for Exchange resource provisioning
     #>
     
     param(
@@ -437,12 +539,75 @@ function New-M365User {
             }
         }
         
+        # ENHANCED: Exchange provisioning (if M365.ExchangeOnline module available)
+        if ($Global:ExchangeModuleAvailable -and (Get-Command "Invoke-ExchangeUserProvisioning" -ErrorAction SilentlyContinue)) {
+            Write-Host "   📧 Configuring Exchange resources..." -ForegroundColor Yellow
+            
+            # Department-based shared mailbox assignments
+            $SharedMailboxesToAdd = @()
+            switch ($Department) {
+                "Sales" { $SharedMailboxesToAdd += "sales@$Domain" }
+                "Support" { $SharedMailboxesToAdd += "support@$Domain" }
+                "IT" { $SharedMailboxesToAdd += "it@$Domain" }
+                "HR" { $SharedMailboxesToAdd += "hr@$Domain" }
+                "Finance" { $SharedMailboxesToAdd += "finance@$Domain" }
+            }
+            
+            # Job title-based distribution list assignments
+            $DistributionListsToAdd = @()
+            if ($JobTitle -like "*Manager*") {
+                $DistributionListsToAdd += "All Managers"
+            }
+            if ($Department) {
+                $DistributionListsToAdd += "$Department Team"
+            }
+            $DistributionListsToAdd += "All Staff"
+            
+            # Mail-enabled security group assignments
+            $MailEnabledSecurityGroupsToAdd = @()
+            if ($Department -eq "IT") {
+                $MailEnabledSecurityGroupsToAdd += "IT Security Group"
+            }
+            
+            if ($SharedMailboxesToAdd.Count -gt 0 -or $DistributionListsToAdd.Count -gt 0 -or $MailEnabledSecurityGroupsToAdd.Count -gt 0) {
+                try {
+                    $ExchangeResult = Invoke-ExchangeUserProvisioning -NewUser $NewUser -SharedMailboxes $SharedMailboxesToAdd -DistributionLists $DistributionListsToAdd -MailEnabledSecurityGroups $MailEnabledSecurityGroupsToAdd
+                    
+                    if ($ExchangeResult.OverallSuccess) {
+                        Write-Host "   ✅ Exchange resources configured successfully" -ForegroundColor Green
+                        $ExchangeDetails = "Shared Mailboxes: $($SharedMailboxesToAdd.Count), Distribution Lists: $($DistributionListsToAdd.Count), Security Groups: $($MailEnabledSecurityGroupsToAdd.Count)"
+                        Add-ActivityLog "Exchange Provisioning" "Success" "User: $UserPrincipalName - $ExchangeDetails"
+                    }
+                    else {
+                        Write-Warning "Some Exchange resource assignments failed - check activity log"
+                        Add-ActivityLog "Exchange Provisioning" "Partial" "User: $UserPrincipalName - Some assignments failed"
+                    }
+                }
+                catch {
+                    Write-Warning "Exchange provisioning failed: $($_.Exception.Message)"
+                    Add-ActivityLog "Exchange Provisioning" "Failed" "User: $UserPrincipalName - $($_.Exception.Message)"
+                }
+            }
+            else {
+                Write-Host "   📋 No Exchange resources to assign based on department/role" -ForegroundColor Gray
+            }
+        }
+        else {
+            Write-Host "   📋 Standard Exchange functionality (M365.ExchangeOnline not available)" -ForegroundColor Gray
+        }
+        
         Update-StatusLabel "✅ User created successfully: $UserPrincipalName"
         Add-ActivityLog "User Creation" "Success" "Created user: $UserPrincipalName with license type: $LicenseType"
         
-        # Show success message
+        # Enhanced success message
+        $SuccessMessage = "User created successfully!`n`nName: $DisplayName`nUPN: $UserPrincipalName`nLicense Type (CustomAttribute1): $LicenseType"
+        if ($Global:ExchangeModuleAvailable) {
+            $SuccessMessage += "`n`n✅ Enhanced Exchange provisioning applied"
+        }
+        $SuccessMessage += "`n`nThe user will receive an email with sign-in instructions."
+        
         [System.Windows.Forms.MessageBox]::Show(
-            "User created successfully!`n`nName: $DisplayName`nUPN: $UserPrincipalName`nLicense Type (CustomAttribute1): $LicenseType`n`nThe user will receive an email with sign-in instructions.",
+            $SuccessMessage,
             "User Creation Successful",
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Information
@@ -775,7 +940,7 @@ function Connect-ToMicrosoftGraph {
             
             Add-ActivityLog "Connection" "Success" "Connected to Microsoft Graph as $($Context.Account)"
             
-            # Auto-discover tenant data
+            # Auto-discover tenant data (enhanced)
             Get-TenantData
             
             return $true
@@ -801,7 +966,7 @@ function Connect-ToMicrosoftGraph {
 function Update-TenantDataDisplay {
     <#
     .SYNOPSIS
-        Updates the tenant data tab with discovered information
+        Updates the tenant data tab with discovered information (ENHANCED)
     #>
     
     if ($Script:TenantDataTextBox) {
@@ -823,6 +988,12 @@ DISCOVERY SUMMARY
 ✅ SharePoint Sites: $($Global:SharePointSites.Count)
 ✅ Accepted Domains: $($Global:AcceptedDomains.Count)
 ✅ License SKUs: $($Global:AvailableLicenses.Count)
+
+EXCHANGE ENHANCEMENT STATUS
+===========================
+M365.ExchangeOnline Module: $(if($Global:ExchangeModuleAvailable){'✅ Available & Active'}else{'❌ Not Available'})
+Exchange Data Source: $(if($Global:ExchangeModuleAvailable){'Enhanced (Get-EXOMailbox, Get-DistributionGroup)'}else{'Standard (Get-Mailbox, Get-DistributionGroup)'})
+Shared Mailbox Detection: $(if($Global:ExchangeModuleAvailable){'✅ Accurate (RecipientTypeDetails)'}else{'⚠️ Standard'})
 
 ACCEPTED DOMAINS
 ================
@@ -1245,10 +1416,18 @@ function New-UserCreationTab {
     $LicenseInfoLabel.ForeColor = [System.Drawing.Color]::DarkBlue
     $LicenseInfoLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.FontStyle]::Italic)
     
+    # Enhanced Exchange info
+    $ExchangeInfoLabel = New-Object System.Windows.Forms.Label
+    $ExchangeInfoLabel.Text = "Enhanced Exchange: $(if($Global:ExchangeModuleAvailable){'✅ Available - Auto-provisioning enabled'}else{'❌ Standard functionality only'})"
+    $ExchangeInfoLabel.Location = New-Object System.Drawing.Point(10, 130)
+    $ExchangeInfoLabel.Size = New-Object System.Drawing.Size(430, 20)
+    $ExchangeInfoLabel.ForeColor = if($Global:ExchangeModuleAvailable){[System.Drawing.Color]::DarkGreen}else{[System.Drawing.Color]::DarkRed}
+    $ExchangeInfoLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.FontStyle]::Bold)
+    
     # License types info
     $LicenseTypesLabel = New-Object System.Windows.Forms.Label
     $LicenseTypesLabel.Text = "Available License Types:`n• BusinessBasic`n• BusinessPremium`n• BusinessStandard`n• E3 / E5`n• ExchangeOnline1 / ExchangeOnline2"
-    $LicenseTypesLabel.Location = New-Object System.Drawing.Point(10, 140)
+    $LicenseTypesLabel.Location = New-Object System.Drawing.Point(10, 160)
     $LicenseTypesLabel.Size = New-Object System.Drawing.Size(430, 120)
     $LicenseTypesLabel.ForeColor = [System.Drawing.Color]::DarkGreen
     $LicenseTypesLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8.5)
@@ -1256,7 +1435,7 @@ function New-UserCreationTab {
     $ManagementGroup.Controls.AddRange(@(
         $ManagerLabel, $Script:ManagerDropdown,
         $LicenseLabel, $Script:LicenseDropdown,
-        $LicenseInfoLabel, $LicenseTypesLabel
+        $LicenseInfoLabel, $ExchangeInfoLabel, $LicenseTypesLabel
     ))
     
     # Groups Group (full width below)
@@ -1397,7 +1576,7 @@ function New-ActivityLogTab {
     $Script:ActivityLogTextBox.Dock = [System.Windows.Forms.DockStyle]::Fill
     $Script:ActivityLogTextBox.ReadOnly = $true
     $Script:ActivityLogTextBox.Font = New-Object System.Drawing.Font("Consolas", 9)
-    $Script:ActivityLogTextBox.Text = "$(Get-Date): Application started`r`n"
+    $Script:ActivityLogTextBox.Text = "$(Get-Date): Application started (Enhanced with M365.ExchangeOnline)`r`n"
     
     $Tab.Controls.Add($Script:ActivityLogTextBox)
     return $Tab
@@ -1417,7 +1596,7 @@ function New-MainForm {
     
     # Main Form
     $Script:MainForm = New-Object System.Windows.Forms.Form
-    $Script:MainForm.Text = "M365 User Provisioning Tool - Enterprise Edition 2025 (Complete)"
+    $Script:MainForm.Text = "M365 User Provisioning Tool - Enterprise Edition 2025 (Enhanced with Exchange)"
     $Script:MainForm.Size = New-Object System.Drawing.Size(1400, 900)
     $Script:MainForm.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
     $Script:MainForm.MinimumSize = New-Object System.Drawing.Size(1200, 800)
@@ -1435,7 +1614,7 @@ function New-MainForm {
     # Status Strip
     $Script:StatusStrip = New-Object System.Windows.Forms.StatusStrip
     $Script:StatusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
-    $Script:StatusLabel.Text = "Ready - Click Connect to start tenant discovery"
+    $Script:StatusLabel.Text = "Ready - Click Connect to start enhanced tenant discovery"
     $Script:StatusLabel.Spring = $true
     $Script:StatusStrip.Items.Add($Script:StatusLabel) | Out-Null
     
@@ -1462,8 +1641,8 @@ function New-MainForm {
     
     # Form events
     $Script:MainForm.Add_Load({
-        Update-StatusLabel "Application started - Ready to connect to Microsoft 365"
-        Add-ActivityLog "Application" "Started" "M365 User Provisioning Tool launched"
+        Update-StatusLabel "Application started - Ready to connect to Microsoft 365 (Enhanced Exchange available: $Global:ExchangeModuleAvailable)"
+        Add-ActivityLog "Application" "Started" "M365 User Provisioning Tool launched with Enhanced Exchange: $Global:ExchangeModuleAvailable"
     })
     
     $Script:MainForm.Add_FormClosing({
@@ -1502,7 +1681,7 @@ function New-MainForm {
 # ================================
 
 try {
-    Write-Host "🚀 Launching M365 User Provisioning Tool Enterprise Edition..." -ForegroundColor Green
+    Write-Host "🚀 Launching M365 User Provisioning Tool Enterprise Edition (Enhanced)..." -ForegroundColor Green
     Write-Host ""
     
     # Create and show the main form
@@ -1522,6 +1701,13 @@ try {
         Write-Host "   • Manager assignment" -ForegroundColor White
         Write-Host "   • Activity logging" -ForegroundColor White
         Write-Host "   • Dry run testing capabilities" -ForegroundColor White
+        if ($Global:ExchangeModuleAvailable) {
+            Write-Host "   • ✅ ENHANCED: Accurate Exchange Online functionality" -ForegroundColor Green
+            Write-Host "   • ✅ ENHANCED: Automatic Exchange resource provisioning" -ForegroundColor Green
+            Write-Host "   • ✅ ENHANCED: Shared mailbox and distribution list management" -ForegroundColor Green
+        } else {
+            Write-Host "   • ⚠️  Standard Exchange functionality (M365.ExchangeOnline not available)" -ForegroundColor Yellow
+        }
         Write-Host ""
         
         # Run the application

@@ -1,4 +1,4 @@
-# M365.ExchangeOnline.psm1 - FIXED VERSION
+# M365.ExchangeOnline.psm1 - UPDATED WITH DEVICE CODE AUTHENTICATION
 # Exchange Online operations module for M365 User Provisioning Tool
 # Works with your existing M365.Authentication module
 
@@ -7,13 +7,14 @@
     Exchange Online operations module
 .DESCRIPTION
     Handles Exchange Online specific operations like shared mailboxes, distribution lists,
-    and mail-enabled security groups. Uses authentication from M365.Authentication module.
+    and mail-enabled security groups. Uses Device Code Authentication for easy help desk access.
 .NOTES
-    Version: 1.0.1 - Dependency Issue Fixed
+    Version: 1.0.3 - Device Code Authentication Added
     Author: Tom Mortiboys
     
-    REMOVED: using module M365.Authentication (was causing loading failures)
-    ADDED: Dynamic function calls to M365.Authentication functions
+    UPDATED: Device Code Authentication for help desk users
+    ENHANCED: User-friendly authentication process
+    MAINTAINED: All existing Exchange functionality
 #>
 
 # Module-scoped variables for Exchange data
@@ -23,6 +24,120 @@ $Script:ExchangeData = @{
     MailEnabledSecurityGroups = @()
     AcceptedDomains = @()
     LastRefresh = $null
+}
+
+# ================================
+# CONNECTION HELPER FUNCTIONS
+# ================================
+
+function Test-ExchangeOnlineConnection {
+    <#
+    .SYNOPSIS
+        Tests if Exchange Online is connected and cmdlets are available
+    .OUTPUTS
+        Boolean indicating if Exchange Online is connected and functional
+    #>
+    [CmdletBinding()]
+    param()
+    
+    try {
+        # Method 1: Check if ExchangeOnlineManagement module is loaded
+        $ExOModule = Get-Module -Name ExchangeOnlineManagement
+        if (-not $ExOModule) {
+            Write-Verbose "ExchangeOnlineManagement module not loaded"
+            return $false
+        }
+        
+        # Method 2: Try to get connection information
+        $ConnectionInfo = Get-ConnectionInformation -ErrorAction SilentlyContinue
+        if ($ConnectionInfo -and $ConnectionInfo.State -eq 'Connected') {
+            Write-Verbose "Exchange Online connected via Get-ConnectionInformation"
+            return $true
+        }
+        
+        # Method 3: Test a simple Exchange cmdlet
+        $TestResult = Get-AcceptedDomain -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($TestResult) {
+            Write-Verbose "Exchange Online connected - Get-AcceptedDomain successful"
+            return $true
+        }
+        
+        Write-Verbose "Exchange Online not connected - no active session"
+        return $false
+    }
+    catch {
+        Write-Verbose "Exchange Online connection test failed: $($_.Exception.Message)"
+        return $false
+    }
+}
+
+function Connect-ExchangeOnlineIfNeeded {
+    <#
+    .SYNOPSIS
+        Connects to Exchange Online using Device Code Authentication
+    .DESCRIPTION
+        Uses device code flow with clear instructions for help desk users
+        Perfect for help desk environments - no complex setup required!
+    .OUTPUTS
+        Boolean indicating successful connection
+    #>
+    [CmdletBinding()]
+    param()
+    
+    # Check if already connected
+    if (Test-ExchangeOnlineConnection) {
+        Write-Verbose "Exchange Online already connected"
+        return $true
+    }
+    
+    try {
+        Write-Host ""
+        Write-Host "🔐 EXCHANGE ONLINE AUTHENTICATION REQUIRED" -ForegroundColor Yellow -BackgroundColor DarkBlue
+        Write-Host "=============================================" -ForegroundColor Yellow -BackgroundColor DarkBlue
+        Write-Host ""
+        Write-Host "📱 Device Code Authentication Process:" -ForegroundColor Cyan
+        Write-Host "   1. A code will appear in this window" -ForegroundColor White
+        Write-Host "   2. A browser will open to: https://microsoft.com/devicelogin" -ForegroundColor White
+        Write-Host "   3. Enter the code in the browser" -ForegroundColor White
+        Write-Host "   4. Sign in with your M365 account" -ForegroundColor White
+        Write-Host "   5. Complete any MFA prompts" -ForegroundColor White
+        Write-Host ""
+        Write-Host "🔄 Initiating connection..." -ForegroundColor Yellow
+        
+        # Import Exchange Online Management module if not already loaded
+        if (-not (Get-Module -Name ExchangeOnlineManagement)) {
+            Import-Module ExchangeOnlineManagement -Force -ErrorAction Stop
+        }
+        
+        # Connect using Device Code Authentication
+        Connect-ExchangeOnline -Device -ShowProgress:$true -ShowBanner:$false -ErrorAction Stop
+        
+        # Verify connection
+        if (Test-ExchangeOnlineConnection) {
+            Write-Host ""
+            Write-Host "✅ SUCCESS: Exchange Online connected!" -ForegroundColor Green -BackgroundColor DarkGreen
+            Write-Host "🎯 Ready to discover Exchange data..." -ForegroundColor Green
+            Write-Host ""
+            return $true
+        }
+        else {
+            Write-Warning "Exchange Online connection established but cmdlets not available"
+            return $false
+        }
+    }
+    catch {
+        Write-Host ""
+        Write-Host "❌ AUTHENTICATION FAILED" -ForegroundColor Red -BackgroundColor DarkRed
+        Write-Warning "Failed to connect to Exchange Online: $($_.Exception.Message)"
+        Write-Host ""
+        Write-Host "💡 Troubleshooting Tips:" -ForegroundColor Yellow
+        Write-Host "   • Make sure you have Exchange Online permissions" -ForegroundColor White
+        Write-Host "   • Check your internet connection" -ForegroundColor White
+        Write-Host "   • Verify your M365 account is active" -ForegroundColor White
+        Write-Host "   • Try again in a few minutes" -ForegroundColor White
+        Write-Host ""
+        return $false
+    }
 }
 
 # ================================
@@ -45,14 +160,14 @@ function Get-ExchangeMailboxData {
     $SharedMailboxes = @()
     
     try {
-        # Check if Exchange Online is connected by testing a cmdlet
-        $TestConnection = Get-AcceptedDomain -ResultSize 1 -ErrorAction SilentlyContinue
+        # Try to connect if needed
+        $IsConnected = Connect-ExchangeOnlineIfNeeded
         
-        if ($TestConnection) {
+        if ($IsConnected) {
             Write-Verbose "Exchange Online connected - using Get-EXOMailbox"
             
             # Use Exchange Online PowerShell for accurate data
-            $SharedMailboxes = Get-EXOMailbox -RecipientTypeDetails SharedMailbox -Properties DisplayName,PrimarySmtpAddress,ArchiveStatus,MailboxPlan | 
+            $SharedMailboxes = Get-EXOMailbox -RecipientTypeDetails SharedMailbox -Properties DisplayName,PrimarySmtpAddress,ArchiveStatus,MailboxPlan -ErrorAction Stop | 
                 Select-Object @{
                     Name = 'Name'
                     Expression = { $_.DisplayName }
@@ -76,34 +191,39 @@ function Get-ExchangeMailboxData {
             Write-Verbose "Found $($SharedMailboxes.Count) shared mailboxes via Exchange Online"
         }
         else {
-            Write-Warning "Exchange Online not connected - falling back to Microsoft Graph"
+            Write-Warning "Exchange Online not available - falling back to Microsoft Graph"
             
             # Fallback to Microsoft Graph (less accurate)
-            $GraphUsers = Get-MgUser -Filter "accountEnabled eq false and mail ne null" -Property DisplayName,Mail,Id -All
-            
-            $SharedMailboxes = $GraphUsers | Where-Object { 
-                $_.Mail -and $_.DisplayName 
-            } | Select-Object @{
-                Name = 'Name'
-                Expression = { $_.DisplayName }
-            }, @{
-                Name = 'EmailAddress' 
-                Expression = { $_.Mail }
-            }, @{
-                Name = 'ArchiveEnabled'
-                Expression = { $false }  # Cannot determine from Graph
-            }, @{
-                Name = 'MailboxPlan'
-                Expression = { 'Unknown' }
-            }, @{
-                Name = 'Type'
-                Expression = { 'PossibleSharedMailbox' }
-            }, @{
-                Name = 'Source'
-                Expression = { 'MicrosoftGraph' }
+            if (Get-Command "Get-MgUser" -ErrorAction SilentlyContinue) {
+                $GraphUsers = Get-MgUser -Filter "accountEnabled eq false and mail ne null" -Property DisplayName,Mail,Id -All
+                
+                $SharedMailboxes = $GraphUsers | Where-Object { 
+                    $_.Mail -and $_.DisplayName 
+                } | Select-Object @{
+                    Name = 'Name'
+                    Expression = { $_.DisplayName }
+                }, @{
+                    Name = 'EmailAddress' 
+                    Expression = { $_.Mail }
+                }, @{
+                    Name = 'ArchiveEnabled'
+                    Expression = { $false }  # Cannot determine from Graph
+                }, @{
+                    Name = 'MailboxPlan'
+                    Expression = { 'Unknown' }
+                }, @{
+                    Name = 'Type'
+                    Expression = { 'PossibleSharedMailbox' }
+                }, @{
+                    Name = 'Source'
+                    Expression = { 'MicrosoftGraph' }
+                }
+                
+                Write-Warning "Found $($SharedMailboxes.Count) possible shared mailboxes via Microsoft Graph (less accurate)"
             }
-            
-            Write-Warning "Found $($SharedMailboxes.Count) possible shared mailboxes via Microsoft Graph (less accurate)"
+            else {
+                Write-Warning "Neither Exchange Online nor Microsoft Graph available for mailbox data"
+            }
         }
     }
     catch {
@@ -133,14 +253,14 @@ function Get-ExchangeDistributionGroupData {
     }
     
     try {
-        # Check if Exchange Online is connected
-        $TestConnection = Get-AcceptedDomain -ResultSize 1 -ErrorAction SilentlyContinue
+        # Try to connect if needed
+        $IsConnected = Connect-ExchangeOnlineIfNeeded
         
-        if ($TestConnection) {
+        if ($IsConnected) {
             Write-Verbose "Exchange Online connected - using Get-DistributionGroup"
             
             # Get Distribution Lists
-            $DistributionLists = Get-DistributionGroup -RecipientTypeDetails DistributionGroup -ResultSize Unlimited |
+            $DistributionLists = Get-DistributionGroup -RecipientTypeDetails MailUniversalDistributionGroup -ResultSize Unlimited -ErrorAction Stop |
                 Select-Object @{
                     Name = 'Name'
                     Expression = { $_.DisplayName }
@@ -149,7 +269,10 @@ function Get-ExchangeDistributionGroupData {
                     Expression = { $_.PrimarySmtpAddress }
                 }, @{
                     Name = 'MemberCount'
-                    Expression = { (Get-DistributionGroupMember $_.Identity).Count }
+                    Expression = { 
+                        try { (Get-DistributionGroupMember $_.Identity -ErrorAction SilentlyContinue).Count } 
+                        catch { 0 }
+                    }
                 }, @{
                     Name = 'Type'
                     Expression = { 'DistributionList' }
@@ -159,7 +282,7 @@ function Get-ExchangeDistributionGroupData {
                 }
             
             # Get Mail-Enabled Security Groups
-            $MailEnabledSecurityGroups = Get-DistributionGroup -RecipientTypeDetails MailUniversalSecurityGroup -ResultSize Unlimited |
+            $MailEnabledSecurityGroups = Get-DistributionGroup -RecipientTypeDetails MailUniversalSecurityGroup -ResultSize Unlimited -ErrorAction Stop |
                 Select-Object @{
                     Name = 'Name'
                     Expression = { $_.DisplayName }
@@ -168,7 +291,10 @@ function Get-ExchangeDistributionGroupData {
                     Expression = { $_.PrimarySmtpAddress }
                 }, @{
                     Name = 'MemberCount'
-                    Expression = { (Get-DistributionGroupMember $_.Identity).Count }
+                    Expression = { 
+                        try { (Get-DistributionGroupMember $_.Identity -ErrorAction SilentloContinue).Count } 
+                        catch { 0 }
+                    }
                 }, @{
                     Name = 'Type'
                     Expression = { 'MailEnabledSecurityGroup' }
@@ -183,31 +309,36 @@ function Get-ExchangeDistributionGroupData {
             Write-Verbose "Found $($DistributionLists.Count) distribution lists and $($MailEnabledSecurityGroups.Count) mail-enabled security groups via Exchange Online"
         }
         else {
-            Write-Warning "Exchange Online not connected - falling back to Microsoft Graph"
+            Write-Warning "Exchange Online not available - falling back to Microsoft Graph"
             
             # Fallback to Microsoft Graph
-            $GraphGroups = Get-MgGroup -Filter "mailEnabled eq true" -Property DisplayName,Mail,Id,GroupTypes -All
-            
-            foreach ($Group in $GraphGroups) {
-                $GroupObj = @{
-                    Name = $Group.DisplayName
-                    EmailAddress = $Group.Mail
-                    MemberCount = 0  # Cannot easily get from Graph without additional calls
-                    Source = 'MicrosoftGraph'
+            if (Get-Command "Get-MgGroup" -ErrorAction SilentlyContinue) {
+                $GraphGroups = Get-MgGroup -Filter "mailEnabled eq true" -Property DisplayName,Mail,Id,GroupTypes -All
+                
+                foreach ($Group in $GraphGroups) {
+                    $GroupObj = @{
+                        Name = $Group.DisplayName
+                        EmailAddress = $Group.Mail
+                        MemberCount = 0  # Cannot easily get from Graph without additional calls
+                        Source = 'MicrosoftGraph'
+                    }
+                    
+                    # Distinguish between distribution lists and mail-enabled security groups
+                    if ($Group.GroupTypes -contains "Unified") {
+                        $GroupObj.Type = 'Microsoft365Group'
+                        $Result.DistributionLists += $GroupObj
+                    }
+                    else {
+                        $GroupObj.Type = 'DistributionList'
+                        $Result.DistributionLists += $GroupObj
+                    }
                 }
                 
-                # Distinguish between distribution lists and mail-enabled security groups
-                if ($Group.GroupTypes -contains "Unified") {
-                    $GroupObj.Type = 'Microsoft365Group'
-                    $Result.DistributionLists += $GroupObj
-                }
-                else {
-                    $GroupObj.Type = 'DistributionList'
-                    $Result.DistributionLists += $GroupObj
-                }
+                Write-Warning "Found $($Result.DistributionLists.Count) mail-enabled groups via Microsoft Graph (less detailed)"
             }
-            
-            Write-Warning "Found $($Result.DistributionLists.Count) mail-enabled groups via Microsoft Graph (less detailed)"
+            else {
+                Write-Warning "Neither Exchange Online nor Microsoft Graph available for group data"
+            }
         }
     }
     catch {
@@ -233,11 +364,11 @@ function Get-ExchangeAcceptedDomains {
     $AcceptedDomains = @()
     
     try {
-        # Check if Exchange Online is connected
-        $TestConnection = Get-AcceptedDomain -ResultSize 1 -ErrorAction SilentlyContinue
+        # Try to connect if needed
+        $IsConnected = Connect-ExchangeOnlineIfNeeded
         
-        if ($TestConnection) {
-            $AcceptedDomains = Get-AcceptedDomain | Select-Object @{
+        if ($IsConnected) {
+            $AcceptedDomains = Get-AcceptedDomain -ErrorAction Stop | Select-Object @{
                 Name = 'DomainName'
                 Expression = { $_.DomainName }
             }, @{
@@ -270,6 +401,7 @@ function Get-AllExchangeData {
         Gets all Exchange Online data and updates module cache
     .DESCRIPTION
         Retrieves all Exchange data (shared mailboxes, distribution lists, domains) and caches it
+        Automatically connects to Exchange Online if needed using Device Code Authentication
     .OUTPUTS
         Hashtable with all Exchange data
     #>
@@ -279,6 +411,20 @@ function Get-AllExchangeData {
     Write-Host "🔄 Discovering Exchange Online data..." -ForegroundColor Cyan
     
     try {
+        # Check Exchange Online connection
+        $IsConnected = Test-ExchangeOnlineConnection
+        if (-not $IsConnected) {
+            Write-Host "   🔗 Exchange Online not connected, attempting connection..." -ForegroundColor Yellow
+            $IsConnected = Connect-ExchangeOnlineIfNeeded
+        }
+        
+        if ($IsConnected) {
+            Write-Host "   ✅ Exchange Online connected - using enhanced cmdlets" -ForegroundColor Green
+        }
+        else {
+            Write-Host "   ⚠️  Exchange Online not available - using fallback methods" -ForegroundColor Yellow
+        }
+        
         # Get all Exchange data
         Write-Host "   📧 Getting shared mailboxes..." -ForegroundColor Gray
         $SharedMailboxes = Get-ExchangeMailboxData
@@ -303,6 +449,7 @@ function Get-AllExchangeData {
             MailEnabledSecurityGroups = $DistributionGroups.MailEnabledSecurityGroups
             AcceptedDomains = $AcceptedDomains
             LastRefresh = $Script:ExchangeData.LastRefresh
+            ConnectionStatus = if($IsConnected) { 'Connected' } else { 'Fallback' }
             Summary = @{
                 SharedMailboxCount = $SharedMailboxes.Count
                 DistributionListCount = $DistributionGroups.DistributionLists.Count
@@ -312,7 +459,8 @@ function Get-AllExchangeData {
         }
         
         Write-Host "   ✅ Exchange data discovery completed!" -ForegroundColor Green
-        Write-Host "      📊 Found: $($AllData.Summary.SharedMailboxCount) shared mailboxes, $($AllData.Summary.DistributionListCount) distribution lists, $($AllData.Summary.MailEnabledSecurityGroupCount) mail-enabled security groups" -ForegroundColor Gray
+        $StatusMsg = if($IsConnected) { "Enhanced Exchange Online" } else { "Fallback methods" }
+        Write-Host "      📊 Found via $StatusMsg : $($AllData.Summary.SharedMailboxCount) shared mailboxes, $($AllData.Summary.DistributionListCount) distribution lists, $($AllData.Summary.MailEnabledSecurityGroupCount) mail-enabled security groups" -ForegroundColor Gray
         
         return $AllData
     }
@@ -324,6 +472,7 @@ function Get-AllExchangeData {
             MailEnabledSecurityGroups = @()
             AcceptedDomains = @()
             LastRefresh = $null
+            ConnectionStatus = 'Failed'
             Summary = @{
                 SharedMailboxCount = 0
                 DistributionListCount = 0
@@ -370,19 +519,19 @@ function Add-UserToSharedMailbox {
         
         Write-Verbose "Adding $UserEmail to shared mailbox $SharedMailboxName with $Permission permission"
         
-        # Check if Exchange Online is connected
-        $TestConnection = Get-AcceptedDomain -ResultSize 1 -ErrorAction SilentlyContinue
+        # Check/connect to Exchange Online
+        $IsConnected = Connect-ExchangeOnlineIfNeeded
         
-        if ($TestConnection) {
+        if ($IsConnected) {
             switch ($Permission) {
                 'FullAccess' {
-                    Add-MailboxPermission -Identity $SharedMailboxName -User $UserEmail -AccessRights FullAccess -InheritanceType All -Confirm:$false
+                    Add-MailboxPermission -Identity $SharedMailboxName -User $UserEmail -AccessRights FullAccess -InheritanceType All -Confirm:$false -ErrorAction Stop
                 }
                 'SendAs' {
-                    Add-RecipientPermission -Identity $SharedMailboxName -Trustee $UserEmail -AccessRights SendAs -Confirm:$false
+                    Add-RecipientPermission -Identity $SharedMailboxName -Trustee $UserEmail -AccessRights SendAs -Confirm:$false -ErrorAction Stop
                 }
                 'SendOnBehalf' {
-                    Set-Mailbox -Identity $SharedMailboxName -GrantSendOnBehalfTo @{Add=$UserEmail}
+                    Set-Mailbox -Identity $SharedMailboxName -GrantSendOnBehalfTo @{Add=$UserEmail} -ErrorAction Stop
                 }
             }
             
@@ -426,11 +575,11 @@ function Add-UserToDistributionList {
         
         Write-Verbose "Adding $UserEmail to distribution list $DistributionListName"
         
-        # Check if Exchange Online is connected
-        $TestConnection = Get-AcceptedDomain -ResultSize 1 -ErrorAction SilentlyContinue
+        # Check/connect to Exchange Online
+        $IsConnected = Connect-ExchangeOnlineIfNeeded
         
-        if ($TestConnection) {
-            Add-DistributionGroupMember -Identity $DistributionListName -Member $UserEmail -Confirm:$false
+        if ($IsConnected) {
+            Add-DistributionGroupMember -Identity $DistributionListName -Member $UserEmail -Confirm:$false -ErrorAction Stop
             
             Write-Host "   ✅ Added $UserEmail to distribution list $DistributionListName" -ForegroundColor Green
             return $true
@@ -472,11 +621,11 @@ function Add-UserToMailEnabledSecurityGroup {
         
         Write-Verbose "Adding $UserEmail to mail-enabled security group $GroupName"
         
-        # Check if Exchange Online is connected
-        $TestConnection = Get-AcceptedDomain -ResultSize 1 -ErrorAction SilentlyContinue
+        # Check/connect to Exchange Online
+        $IsConnected = Connect-ExchangeOnlineIfNeeded
         
-        if ($TestConnection) {
-            Add-DistributionGroupMember -Identity $GroupName -Member $UserEmail -Confirm:$false
+        if ($IsConnected) {
+            Add-DistributionGroupMember -Identity $GroupName -Member $UserEmail -Confirm:$false -ErrorAction Stop
             
             Write-Host "   ✅ Added $UserEmail to mail-enabled security group $GroupName" -ForegroundColor Green
             return $true
@@ -529,6 +678,14 @@ function Invoke-ExchangeUserProvisioning {
         DistributionListResults = @()
         MailEnabledSecurityGroupResults = @()
         OverallSuccess = $true
+    }
+    
+    # Check Exchange Online connection
+    $IsConnected = Connect-ExchangeOnlineIfNeeded
+    if (-not $IsConnected) {
+        Write-Warning "Exchange Online not available - skipping Exchange provisioning"
+        $Results.OverallSuccess = $false
+        return $Results
     }
     
     # Add to shared mailboxes
@@ -584,5 +741,7 @@ Export-ModuleMember -Function @(
     'Add-UserToDistributionList',
     'Add-UserToMailEnabledSecurityGroup',
     'Get-AllExchangeData',
-    'Invoke-ExchangeUserProvisioning'
+    'Invoke-ExchangeUserProvisioning',
+    'Test-ExchangeOnlineConnection',
+    'Connect-ExchangeOnlineIfNeeded'
 )
