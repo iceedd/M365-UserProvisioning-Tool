@@ -9,7 +9,7 @@
     - Comprehensive tenant data discovery
     - Complete user creation form with all fields
     - License assignment via CustomAttribute1
-    - UK location management
+    - Manual office location input
     - Manager and group selection
     - Real-time tenant data updates
     
@@ -48,7 +48,7 @@ $Script:PostalCodeTextBox = $null
 
 # Dropdown controls
 $Script:DomainDropdown = $null
-$Script:OfficeLocationDropdown = $null
+$Script:OfficeLocationTextBox = $null  # CHANGED: Now a TextBox instead of Dropdown
 $Script:ManagerDropdown = $null
 $Script:LicenseTypeDropdown = $null
 $Script:CountryDropdown = $null
@@ -73,21 +73,6 @@ $Script:TenantGroups = @()
 $Script:TenantLicenses = @()
 $Script:TenantDomains = @()
 $Script:TenantInfo = $null
-
-# UK Locations
-$Script:UKLocations = @(
-    "United Kingdom - London",
-    "United Kingdom - Manchester", 
-    "United Kingdom - Birmingham",
-    "United Kingdom - Leeds",
-    "United Kingdom - Glasgow",
-    "United Kingdom - Edinburgh",
-    "United Kingdom - Bristol",
-    "United Kingdom - Liverpool",
-    "Remote/Home Working - UK",
-    "Office - Head Office",
-    "Office - Branch Office"
-)
 
 # License types for CustomAttribute1
 $Script:LicenseTypes = @(
@@ -501,21 +486,16 @@ function New-UserCreationTab {
     
     $y += $spacing
     
-    # Office Location
+    # Office Location - CHANGED TO TEXT BOX
     $OfficeLocationLabel = New-Object System.Windows.Forms.Label
     $OfficeLocationLabel.Text = "Office Location:"
     $OfficeLocationLabel.Location = New-Object System.Drawing.Point(10, $y)
     $OfficeLocationLabel.Size = New-Object System.Drawing.Size($labelWidth, 20)
     
-    $Script:OfficeLocationDropdown = New-Object System.Windows.Forms.ComboBox
-    $Script:OfficeLocationDropdown.Location = New-Object System.Drawing.Point(120, ($y-2))
-    $Script:OfficeLocationDropdown.Size = New-Object System.Drawing.Size($textBoxWidth, 20)
-    $Script:OfficeLocationDropdown.DropDownStyle = "DropDownList"
-    
-    # Populate UK locations
-    foreach ($Location in $Script:UKLocations) {
-        $Script:OfficeLocationDropdown.Items.Add($Location) | Out-Null
-    }
+    $Script:OfficeLocationTextBox = New-Object System.Windows.Forms.TextBox
+    $Script:OfficeLocationTextBox.Location = New-Object System.Drawing.Point(120, ($y-2))
+    $Script:OfficeLocationTextBox.Size = New-Object System.Drawing.Size($textBoxWidth, 20)
+    $Script:OfficeLocationTextBox.PlaceholderText = "Enter office location"
     
     $y += $spacing
     
@@ -550,7 +530,7 @@ function New-UserCreationTab {
         $PasswordLabel, $Script:PasswordTextBox, $GeneratePasswordButton,
         $DepartmentLabel, $Script:DepartmentTextBox,
         $JobTitleLabel, $Script:JobTitleTextBox,
-        $OfficeLocationLabel, $Script:OfficeLocationDropdown,
+        $OfficeLocationLabel, $Script:OfficeLocationTextBox,
         $OfficePhoneLabel, $Script:OfficePhoneTextBox,
         $MobilePhoneLabel, $Script:MobilePhoneTextBox
     ))
@@ -980,7 +960,7 @@ function Invoke-CreateUser {
         Password = $Script:PasswordTextBox.Text
         Department = $Script:DepartmentTextBox.Text.Trim()
         JobTitle = $Script:JobTitleTextBox.Text.Trim()
-        Office = $Script:OfficeLocationDropdown.SelectedItem
+        Office = $Script:OfficeLocationTextBox.Text  # CHANGED: Now uses TextBox instead of SelectedItem
         Manager = $Script:ManagerDropdown.SelectedItem
         LicenseType = $Script:LicenseTypeDropdown.SelectedItem
         Groups = $SelectedGroups
@@ -1175,11 +1155,12 @@ function Clear-UserCreationForm {
     if ($Script:OfficePhoneTextBox) { $Script:OfficePhoneTextBox.Clear() }
     if ($Script:MobilePhoneTextBox) { $Script:MobilePhoneTextBox.Clear() }
     
-    # Reset dropdowns to default selections
-    if ($Script:OfficeLocationDropdown -and $Script:OfficeLocationDropdown.Items.Count -gt 0) {
-        $Script:OfficeLocationDropdown.SelectedIndex = 0
+    # Clear office location text box - CHANGED: Now clears TextBox instead of resetting dropdown
+    if ($Script:OfficeLocationTextBox) {
+        $Script:OfficeLocationTextBox.Clear()
     }
     
+    # Reset dropdowns to default selections
     if ($Script:ManagerDropdown -and $Script:ManagerDropdown.Items.Count -gt 0) {
         $Script:ManagerDropdown.SelectedIndex = 0
     }

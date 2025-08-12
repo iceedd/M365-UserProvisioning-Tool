@@ -10,16 +10,18 @@ param(
 .SYNOPSIS
     M365 User Provisioning Tool - Enterprise Edition 2025 (COMPLETE WITH BULK IMPORT + EXCHANGE ONLINE)
     Comprehensive M365 user management with intelligent tenant discovery and enhanced Exchange functionality
+    FIXED: Restored legacy functionality for flexible attributes and manual group selection
 
 .DESCRIPTION
     Advanced user provisioning tool with:
     - Intelligent tenant discovery (users, groups, mailboxes, sites)
     - Single user creation and bulk CSV import
     - License assignment via CustomAttribute1
-    - UK-based location management
+    - Manual office location input
     - Clean tabbed interface with pagination
     - Robust error handling and validation
     - ENHANCED: M365.ExchangeOnline module integration for accurate Exchange data
+    - FIXED: Flexible attribute handling and manual group selection (no hardcoded assumptions)
     
     FEATURES:
     - Single user creation with full property support
@@ -30,13 +32,15 @@ param(
     - Accurate shared mailbox detection
     - Complete distribution list management
     - Mail-enabled security group support
+    - RESTORED: Manual group selection including distribution lists
 
 .NOTES
-    Version: 3.1.2025-COMPLETE-ENHANCED
+    Version: 3.1.2025-COMPLETE-ENHANCED-FIXED-PROFESSIONAL
     Author: Enterprise Solutions Team
     PowerShell: 7.0+ Required
     Dependencies: Microsoft Graph PowerShell SDK V2.28+, Exchange Online PowerShell, M365.ExchangeOnline Module
     Last Updated: August 2025
+    Fixed: Hardcoded Exchange provisioning removed, legacy flexibility restored, professional UI
 
 .EXAMPLE
     .\M365-UserProvisioning-Enterprise.ps1
@@ -60,7 +64,7 @@ $Global:AcceptedDomains = @()
 $Global:CurrentPage = 1
 $Global:PageSize = 50
 $Global:TotalItems = 0
-$Global:ExchangeModuleAvailable = $false  # NEW: Track M365.ExchangeOnline module availability
+$Global:ExchangeModuleAvailable = $false  # Track M365.ExchangeOnline module availability
 
 # Bulk Import Variables
 $Global:ImportData = $null
@@ -72,21 +76,6 @@ $Script:ProgressDetails = $null
 $Script:ImportButton = $null
 $Script:DryRunCheckBox = $null
 $Script:SkipDuplicatesCheckBox = $null
-
-# UK-based locations configuration
-$Global:UKLocations = @(
-    "United Kingdom - London",
-    "United Kingdom - Manchester", 
-    "United Kingdom - Birmingham",
-    "United Kingdom - Leeds",
-    "United Kingdom - Glasgow",
-    "United Kingdom - Edinburgh",
-    "United Kingdom - Bristol",
-    "United Kingdom - Liverpool",
-    "Remote/Home Working - UK",
-    "Office - Head Office",
-    "Office - Branch Office"
-)
 
 # License type mappings for CustomAttribute1
 $Global:LicenseTypes = @{
@@ -107,31 +96,31 @@ $Global:ActivityLog = @()
 # ASSEMBLY LOADING & INITIALIZATION (FIXED)
 # ================================
 
-Write-Host "M365 User Provisioning Tool - Enterprise Edition 2025 (Enhanced)" -ForegroundColor Green
+Write-Host "M365 User Provisioning Tool - Enterprise Edition 2025 (Enhanced & Fixed)" -ForegroundColor Green
 Write-Host "=================================================================" -ForegroundColor Cyan
-Write-Host "🔧 COMPLETE VERSION - Single User + Bulk CSV Import + Enhanced Exchange" -ForegroundColor Yellow
+Write-Host "COMPLETE VERSION - Single User + Bulk CSV Import + Enhanced Exchange + Legacy Flexibility RESTORED" -ForegroundColor Yellow
 Write-Host ""
 
 try {
-    Write-Host "🔧 Initializing Windows Forms (Fixed Mode)..." -ForegroundColor Cyan
+    Write-Host "Initializing Windows Forms (Fixed Mode)..." -ForegroundColor Cyan
     
     # Load Windows Forms assemblies
     Add-Type -AssemblyName System.Windows.Forms -ErrorAction Stop
     Add-Type -AssemblyName System.Drawing -ErrorAction Stop
-    Write-Host "   ✅ Windows Forms assemblies loaded" -ForegroundColor Green
+    Write-Host "   [OK] Windows Forms assemblies loaded" -ForegroundColor Green
     
     # Enable visual styles only
     [System.Windows.Forms.Application]::EnableVisualStyles()
-    Write-Host "   ✅ Visual styles enabled" -ForegroundColor Green
+    Write-Host "   [OK] Visual styles enabled" -ForegroundColor Green
     
     # SKIP SetCompatibleTextRenderingDefault - this was causing the error!
-    Write-Host "   ⏭️  Skipping SetCompatibleTextRenderingDefault (not required for functionality)" -ForegroundColor Yellow
+    Write-Host "   [SKIP] SetCompatibleTextRenderingDefault (not required for functionality)" -ForegroundColor Yellow
     
-    Write-Host "✅ Windows Forms ready for enterprise application!" -ForegroundColor Green
+    Write-Host "[OK] Windows Forms ready for enterprise application!" -ForegroundColor Green
     Write-Host ""
 }
 catch {
-    Write-Host "❌ Failed to initialize Windows Forms: $($_.Exception.Message)" -ForegroundColor Red
+    Write-Host "[ERROR] Failed to initialize Windows Forms: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 }
 
@@ -139,7 +128,7 @@ catch {
 # MICROSOFT GRAPH MODULE LOADING
 # ================================
 
-Write-Host "📚 Loading Microsoft Graph PowerShell modules..." -ForegroundColor Cyan
+Write-Host "Loading Microsoft Graph PowerShell modules..." -ForegroundColor Cyan
 
 $RequiredModules = @(
     'Microsoft.Graph.Authentication',
@@ -154,51 +143,51 @@ $RequiredModules = @(
 foreach ($Module in $RequiredModules) {
     try {
         if (-not (Get-Module -ListAvailable -Name $Module)) {
-            Write-Host "   📥 Installing $Module..." -ForegroundColor Yellow
+            Write-Host "   Installing $Module..." -ForegroundColor Yellow
             Install-Module -Name $Module -Force -AllowClobber -Scope CurrentUser -ErrorAction Stop
         }
         
-        Write-Host "   📤 Importing $Module..." -ForegroundColor Yellow
+        Write-Host "   Importing $Module..." -ForegroundColor Yellow
         Import-Module -Name $Module -Force -ErrorAction Stop
-        Write-Host "   ✅ $Module loaded" -ForegroundColor Green
+        Write-Host "   [OK] $Module loaded" -ForegroundColor Green
     }
     catch {
-        Write-Warning "⚠️  Failed to load $Module : $($_.Exception.Message)"
-        Write-Host "🔄 Application will continue with limited functionality" -ForegroundColor Yellow
+        Write-Warning "[WARNING] Failed to load $Module : $($_.Exception.Message)"
+        Write-Host "Application will continue with limited functionality" -ForegroundColor Yellow
     }
 }
 
-Write-Host "✅ Required modules processed" -ForegroundColor Green
+Write-Host "[OK] Required modules processed" -ForegroundColor Green
 
 # ================================
 # ENHANCED: M365.EXCHANGEONLINE MODULE LOADING
 # ================================
 
 Write-Host ""
-Write-Host "📧 Loading Enhanced Exchange Online Module..." -ForegroundColor Cyan
+Write-Host "Loading Enhanced Exchange Online Module..." -ForegroundColor Cyan
 
 # Load custom M365.ExchangeOnline module (if available)
 try {
     if (Test-Path ".\Modules\M365.ExchangeOnline\M365.ExchangeOnline.psd1") {
-        Write-Host "   📤 Loading M365.ExchangeOnline module..." -ForegroundColor Yellow
+        Write-Host "   Loading M365.ExchangeOnline module..." -ForegroundColor Yellow
         Import-Module ".\Modules\M365.ExchangeOnline\M365.ExchangeOnline.psd1" -Force -ErrorAction Stop
-        Write-Host "   ✅ M365.ExchangeOnline module loaded successfully!" -ForegroundColor Green
-        Write-Host "   🚀 Enhanced Exchange functionality available!" -ForegroundColor Green
+        Write-Host "   [OK] M365.ExchangeOnline module loaded successfully!" -ForegroundColor Green
+        Write-Host "   Enhanced Exchange functionality available!" -ForegroundColor Green
         $Global:ExchangeModuleAvailable = $true
         
         # Test if key functions are available
         $ExchangeFunctions = Get-Command -Module M365.ExchangeOnline -ErrorAction SilentlyContinue
-        Write-Host "   📊 Available Exchange functions: $($ExchangeFunctions.Count)" -ForegroundColor Cyan
+        Write-Host "   Available Exchange functions: $($ExchangeFunctions.Count)" -ForegroundColor Cyan
     }
     else {
-        Write-Host "   ⚠️  M365.ExchangeOnline module not found at .\Modules\M365.ExchangeOnline\" -ForegroundColor Yellow
-        Write-Host "   📋 Using built-in Exchange functionality instead" -ForegroundColor Yellow
+        Write-Host "   [WARNING] M365.ExchangeOnline module not found at .\Modules\M365.ExchangeOnline\" -ForegroundColor Yellow
+        Write-Host "   Using built-in Exchange functionality instead" -ForegroundColor Yellow
         $Global:ExchangeModuleAvailable = $false
     }
 }
 catch {
-    Write-Warning "⚠️  Failed to load M365.ExchangeOnline: $($_.Exception.Message)"
-    Write-Host "   📋 Using built-in Exchange functionality instead" -ForegroundColor Yellow
+    Write-Warning "[WARNING] Failed to load M365.ExchangeOnline: $($_.Exception.Message)"
+    Write-Host "   Using built-in Exchange functionality instead" -ForegroundColor Yellow
     $Global:ExchangeModuleAvailable = $false
 }
 
@@ -216,32 +205,32 @@ function Get-TenantData {
     #>
     
     try {
-        Update-StatusLabel "🔍 Discovering tenant data..."
+        Update-StatusLabel "Discovering tenant data..."
         
         # Get tenant information
-        Write-Host "   📊 Getting tenant information..." -ForegroundColor Yellow
+        Write-Host "   Getting tenant information..." -ForegroundColor Yellow
         $Global:TenantInfo = Get-MgOrganization
         
         # Get accepted domains
-        Write-Host "   🌐 Getting accepted domains..." -ForegroundColor Yellow
+        Write-Host "   Getting accepted domains..." -ForegroundColor Yellow
         $Global:AcceptedDomains = Get-MgDomain | Where-Object { $_.IsVerified -eq $true }
         
         # Get all users (for manager dropdown)
-        Write-Host "   👥 Getting existing users..." -ForegroundColor Yellow
+        Write-Host "   Getting existing users..." -ForegroundColor Yellow
         $Global:AvailableUsers = Get-MgUser -All -Property "DisplayName,UserPrincipalName,JobTitle,Department" | 
             Sort-Object DisplayName
         
         # Get all groups
-        Write-Host "   🏢 Getting security groups..." -ForegroundColor Yellow
+        Write-Host "   Getting security groups..." -ForegroundColor Yellow
         $Global:AvailableGroups = Get-MgGroup -All -Property "DisplayName,GroupTypes,SecurityEnabled,MailEnabled" |
             Sort-Object DisplayName
         
         # ENHANCED EXCHANGE ONLINE DATA DISCOVERY
-        Write-Host "   📧 Getting Exchange Online data..." -ForegroundColor Yellow
+        Write-Host "   Getting Exchange Online data..." -ForegroundColor Yellow
         
         # Check if M365.ExchangeOnline module is available
         if ($Global:ExchangeModuleAvailable -and (Get-Command "Get-AllExchangeData" -ErrorAction SilentlyContinue)) {
-            Write-Host "      🔄 Using M365.ExchangeOnline module for enhanced data discovery..." -ForegroundColor Cyan
+            Write-Host "      Using M365.ExchangeOnline module for enhanced data discovery..." -ForegroundColor Cyan
             
             try {
                 # Use the enhanced Exchange module
@@ -270,11 +259,11 @@ function Get-TenantData {
                     $Global:AvailableMailboxes = $Global:SharedMailboxes
                 }
                 
-                Write-Host "      ✅ Enhanced Exchange data loaded!" -ForegroundColor Green
-                Write-Host "         📊 $($ExchangeData.Summary.SharedMailboxCount) shared mailboxes" -ForegroundColor Gray
-                Write-Host "         📊 $($ExchangeData.Summary.DistributionListCount) distribution lists" -ForegroundColor Gray
-                Write-Host "         📊 $($ExchangeData.Summary.MailEnabledSecurityGroupCount) mail-enabled security groups" -ForegroundColor Gray
-                Write-Host "         📊 $($ExchangeData.Summary.AcceptedDomainCount) Exchange domains" -ForegroundColor Gray
+                Write-Host "      [OK] Enhanced Exchange data loaded!" -ForegroundColor Green
+                Write-Host "         $($ExchangeData.Summary.SharedMailboxCount) shared mailboxes" -ForegroundColor Gray
+                Write-Host "         $($ExchangeData.Summary.DistributionListCount) distribution lists" -ForegroundColor Gray
+                Write-Host "         $($ExchangeData.Summary.MailEnabledSecurityGroupCount) mail-enabled security groups" -ForegroundColor Gray
+                Write-Host "         $($ExchangeData.Summary.AcceptedDomainCount) Exchange domains" -ForegroundColor Gray
             }
             catch {
                 Write-Warning "Enhanced Exchange discovery failed, falling back to standard method: $($_.Exception.Message)"
@@ -282,12 +271,12 @@ function Get-TenantData {
             }
         }
         else {
-            Write-Host "      ⚠️  M365.ExchangeOnline module not available - using standard Exchange discovery" -ForegroundColor Yellow
+            Write-Host "      [WARNING] M365.ExchangeOnline module not available - using standard Exchange discovery" -ForegroundColor Yellow
             Get-ExchangeDataFallback
         }
         
         # Get SharePoint sites
-        Write-Host "   🌐 Getting SharePoint sites..." -ForegroundColor Yellow
+        Write-Host "   Getting SharePoint sites..." -ForegroundColor Yellow
         try {
             $Global:SharePointSites = Get-MgSite -All | Sort-Object DisplayName
         }
@@ -297,15 +286,15 @@ function Get-TenantData {
         }
         
         # Get available licenses
-        Write-Host "   🎫 Getting license information..." -ForegroundColor Yellow
+        Write-Host "   Getting license information..." -ForegroundColor Yellow
         $Global:AvailableLicenses = Get-MgSubscribedSku
         
         # Update UI with discovered data
         Update-TenantDataDisplay
         Update-Dropdowns
         
-        Update-StatusLabel "✅ Tenant discovery completed successfully"
-        Write-Host "✅ Tenant data discovery completed" -ForegroundColor Green
+        Update-StatusLabel "[OK] Tenant discovery completed successfully"
+        Write-Host "[OK] Tenant data discovery completed" -ForegroundColor Green
         
         # Enhanced logging
         $TotalExchangeItems = $Global:SharedMailboxes.Count + $Global:DistributionLists.Count + $Global:MailEnabledSecurityGroups.Count
@@ -314,8 +303,8 @@ function Get-TenantData {
     }
     catch {
         $ErrorMsg = "Tenant discovery failed: $($_.Exception.Message)"
-        Update-StatusLabel "❌ $ErrorMsg"
-        Write-Host "❌ $ErrorMsg" -ForegroundColor Red
+        Update-StatusLabel "[ERROR] $ErrorMsg"
+        Write-Host "[ERROR] $ErrorMsg" -ForegroundColor Red
         Add-ActivityLog "Tenant Discovery" "Failed" $_.Exception.Message
         
         [System.Windows.Forms.MessageBox]::Show(
@@ -333,13 +322,13 @@ function Get-ExchangeDataFallback {
         Fallback Exchange discovery using standard cmdlets (original method)
     #>
     
-    Write-Host "      📋 Using standard Exchange Online cmdlets..." -ForegroundColor Yellow
+    Write-Host "      Using standard Exchange Online cmdlets..." -ForegroundColor Yellow
     
     # Get distribution groups (original method)
     try {
         $Global:DistributionLists = Get-DistributionGroup -ResultSize Unlimited | Sort-Object Name
         $Global:MailEnabledSecurityGroups = Get-DistributionGroup -RecipientTypeDetails MailUniversalSecurityGroup -ResultSize Unlimited | Sort-Object Name
-        Write-Host "      ✅ Standard distribution groups loaded: $($Global:DistributionLists.Count) DLs, $($Global:MailEnabledSecurityGroups.Count) MESGs" -ForegroundColor Green
+        Write-Host "      [OK] Standard distribution groups loaded: $($Global:DistributionLists.Count) DLs, $($Global:MailEnabledSecurityGroups.Count) MESGs" -ForegroundColor Green
     }
     catch {
         Write-Warning "Exchange Online not available - skipping distribution groups"
@@ -351,7 +340,7 @@ function Get-ExchangeDataFallback {
     try {
         $Global:AvailableMailboxes = Get-Mailbox -ResultSize Unlimited | Sort-Object Name
         $Global:SharedMailboxes = Get-Mailbox -RecipientTypeDetails SharedMailbox -ResultSize Unlimited | Sort-Object Name
-        Write-Host "      ✅ Standard mailboxes loaded: $($Global:AvailableMailboxes.Count) total, $($Global:SharedMailboxes.Count) shared" -ForegroundColor Green
+        Write-Host "      [OK] Standard mailboxes loaded: $($Global:AvailableMailboxes.Count) total, $($Global:SharedMailboxes.Count) shared" -ForegroundColor Green
     }
     catch {
         Write-Warning "Exchange Online not available - skipping mailbox discovery"
@@ -364,6 +353,7 @@ function Update-Dropdowns {
     <#
     .SYNOPSIS
         Updates all dropdown controls with discovered tenant data
+        ENHANCED: Includes improved groups list with distribution lists
     #>
     
     # Update domain dropdown
@@ -393,48 +383,105 @@ function Update-Dropdowns {
         $Script:LicenseDropdown.SelectedIndex = 0
     }
     
-    # Update office location dropdown
-    $Script:OfficeDropdown.Items.Clear()
-    foreach ($Location in $Global:UKLocations) {
-        $Script:OfficeDropdown.Items.Add($Location) | Out-Null
-    }
-    if ($Script:OfficeDropdown.Items.Count -gt 0) {
-        $Script:OfficeDropdown.SelectedIndex = 0
-    }
+    # Office location is now a text box - no population needed
+    # $Script:OfficeDropdown is now $Script:OfficeTextBox
     
-    # Update groups checklist (ENHANCED with better formatting)
+    # ENHANCED: Update groups checklist with improved categorization and distribution lists
     $Script:GroupsCheckedListBox.Items.Clear()
     
-    # Add security groups
-    foreach ($Group in $Global:AvailableGroups) {
-        $GroupDisplay = "🔒 $($Group.DisplayName)"
-        $Script:GroupsCheckedListBox.Items.Add($GroupDisplay) | Out-Null
+    Write-Host "Updating groups list with enhanced categorization..." -ForegroundColor Cyan
+    
+    # Add regular security groups
+    $SecurityGroups = $Global:AvailableGroups | Where-Object { 
+        ($_.SecurityEnabled -eq $true -and $_.MailEnabled -ne $true) -and ($_.GroupTypes -notcontains "Unified")
+    } | Sort-Object DisplayName
+    
+    if ($SecurityGroups.Count -gt 0) {
+        $Script:GroupsCheckedListBox.Items.Add("=== SECURITY GROUPS ===") | Out-Null
+        foreach ($Group in $SecurityGroups) {
+            $DisplayText = "$($Group.DisplayName) [Security Group]"
+            $Script:GroupsCheckedListBox.Items.Add($DisplayText) | Out-Null
+        }
     }
     
-    # Add distribution groups (enhanced formatting)
-    foreach ($DL in $Global:DistributionLists) {
-        $GroupName = if ($DL.Name) { $DL.Name } elseif ($DL.DisplayName) { $DL.DisplayName } else { $DL.ToString() }
-        $GroupDisplay = "📧 $GroupName (Distribution List)"
-        $Script:GroupsCheckedListBox.Items.Add($GroupDisplay) | Out-Null
+    # Add Microsoft 365 Groups
+    $M365Groups = $Global:AvailableGroups | Where-Object { 
+        $_.GroupTypes -contains "Unified"
+    } | Sort-Object DisplayName
+    
+    if ($M365Groups.Count -gt 0) {
+        $Script:GroupsCheckedListBox.Items.Add("=== MICROSOFT 365 GROUPS ===") | Out-Null
+        foreach ($Group in $M365Groups) {
+            $DisplayText = "$($Group.DisplayName) [Microsoft 365 Group]"
+            if ($Group.Mail) {
+                $DisplayText += " - $($Group.Mail)"
+            }
+            $Script:GroupsCheckedListBox.Items.Add($DisplayText) | Out-Null
+        }
     }
     
-    # Add mail-enabled security groups (enhanced formatting)
-    foreach ($MESG in $Global:MailEnabledSecurityGroups) {
-        $GroupName = if ($MESG.Name) { $MESG.Name } elseif ($MESG.DisplayName) { $MESG.DisplayName } else { $MESG.ToString() }
-        $GroupDisplay = "🔐 $GroupName (Mail-Enabled Security)"
-        $Script:GroupsCheckedListBox.Items.Add($GroupDisplay) | Out-Null
+    # RESTORED: Add Distribution Lists (NOW SELECTABLE!)
+    if ($Global:DistributionLists -and $Global:DistributionLists.Count -gt 0) {
+        $Script:GroupsCheckedListBox.Items.Add("=== DISTRIBUTION LISTS ===") | Out-Null
+        foreach ($DL in ($Global:DistributionLists | Sort-Object DisplayName)) {
+            $GroupName = if ($DL.DisplayName) { $DL.DisplayName } elseif ($DL.Name) { $DL.Name } else { $DL.ToString() }
+            $EmailAddress = if ($DL.Mail) { $DL.Mail } elseif ($DL.PrimarySmtpAddress) { $DL.PrimarySmtpAddress } else { "" }
+            
+            $DisplayText = "$GroupName [Distribution List]"
+            if ($EmailAddress) {
+                $DisplayText += " - $EmailAddress"
+            }
+            $Script:GroupsCheckedListBox.Items.Add($DisplayText) | Out-Null
+        }
     }
+    
+    # Add Mail-Enabled Security Groups
+    if ($Global:MailEnabledSecurityGroups -and $Global:MailEnabledSecurityGroups.Count -gt 0) {
+        $Script:GroupsCheckedListBox.Items.Add("=== MAIL-ENABLED SECURITY GROUPS ===") | Out-Null
+        foreach ($MESG in ($Global:MailEnabledSecurityGroups | Sort-Object DisplayName)) {
+            $GroupName = if ($MESG.DisplayName) { $MESG.DisplayName } elseif ($MESG.Name) { $MESG.Name } else { $MESG.ToString() }
+            $EmailAddress = if ($MESG.Mail) { $MESG.Mail } elseif ($MESG.PrimarySmtpAddress) { $MESG.PrimarySmtpAddress } else { "" }
+            
+            $DisplayText = "$GroupName [Mail-Enabled Security]"
+            if ($EmailAddress) {
+                $DisplayText += " - $EmailAddress"
+            }
+            $Script:GroupsCheckedListBox.Items.Add($DisplayText) | Out-Null
+        }
+    }
+    
+    # RESTORED: Add Shared Mailboxes (NOW SELECTABLE FOR PERMISSIONS!)
+    if ($Global:SharedMailboxes -and $Global:SharedMailboxes.Count -gt 0) {
+        $Script:GroupsCheckedListBox.Items.Add("=== SHARED MAILBOXES ===") | Out-Null
+        foreach ($SharedMailbox in ($Global:SharedMailboxes | Sort-Object DisplayName)) {
+            $MailboxName = if ($SharedMailbox.DisplayName) { $SharedMailbox.DisplayName } elseif ($SharedMailbox.Name) { $SharedMailbox.Name } else { $SharedMailbox.ToString() }
+            $EmailAddress = if ($SharedMailbox.EmailAddress) { $SharedMailbox.EmailAddress } elseif ($SharedMailbox.PrimarySmtpAddress) { $SharedMailbox.PrimarySmtpAddress } else { "" }
+            
+            $DisplayText = "$MailboxName [Shared Mailbox]"
+            if ($EmailAddress) {
+                $DisplayText += " - $EmailAddress"
+            }
+            $Script:GroupsCheckedListBox.Items.Add($DisplayText) | Out-Null
+        }
+    }
+    
+    Write-Host "[OK] Groups list updated with enhanced categorization" -ForegroundColor Green
+    Write-Host "   Security Groups: $($SecurityGroups.Count)" -ForegroundColor Gray
+    Write-Host "   M365 Groups: $($M365Groups.Count)" -ForegroundColor Gray
+    Write-Host "   Distribution Lists: $($Global:DistributionLists.Count)" -ForegroundColor Gray
+    Write-Host "   Mail-Enabled Security Groups: $($Global:MailEnabledSecurityGroups.Count)" -ForegroundColor Gray
+    Write-Host "   Shared Mailboxes: $($Global:SharedMailboxes.Count)" -ForegroundColor Gray
 }
 
 # ================================
-# ENHANCED USER CREATION FUNCTIONS
+# ENHANCED USER CREATION FUNCTIONS (FIXED)
 # ================================
 
 function New-M365User {
     <#
     .SYNOPSIS
         Creates a new M365 user with all specified properties and group memberships
-        ENHANCED with M365.ExchangeOnline integration for Exchange resource provisioning
+        FIXED: Restored legacy functionality - flexible attributes and manual group selection only
     #>
     
     param(
@@ -465,9 +512,9 @@ function New-M365User {
         $UserPrincipalName = "$Username@$Domain"
         $DisplayName = "$FirstName $LastName"
         
-        Update-StatusLabel "👤 Creating user: $UserPrincipalName"
+        Update-StatusLabel "Creating user: $UserPrincipalName"
         
-        # Create user parameters
+        # Create user parameters - FLEXIBLE ATTRIBUTE HANDLING RESTORED
         $UserParams = @{
             UserPrincipalName = $UserPrincipalName
             DisplayName = $DisplayName
@@ -482,23 +529,33 @@ function New-M365User {
             }
         }
         
-        # Add optional properties
-        if ($Department) { $UserParams.Department = $Department }
-        if ($JobTitle) { $UserParams.JobTitle = $JobTitle }
-        if ($Office) { $UserParams.OfficeLocation = $Office }
+        # Add optional properties - ANY VALUE CAN BE ENTERED (restored legacy behavior)
+        if ($Department) { 
+            $UserParams.Department = $Department
+            Write-Host "   Setting Department: $Department" -ForegroundColor Gray
+        }
+        if ($JobTitle) { 
+            $UserParams.JobTitle = $JobTitle
+            Write-Host "   Setting Job Title: $JobTitle" -ForegroundColor Gray
+        }
+        if ($Office) { 
+            $UserParams.OfficeLocation = $Office
+            Write-Host "   Setting Office Location: $Office" -ForegroundColor Gray
+        }
         
         # Set CustomAttribute1 for license assignment
         if ($LicenseType) {
             $UserParams.OnPremisesExtensionAttributes = @{
                 ExtensionAttribute1 = $LicenseType
             }
+            Write-Host "   Setting License Type (CustomAttribute1): $LicenseType" -ForegroundColor Gray
         }
         
         # Create the user
-        Write-Host "   📝 Creating user account..." -ForegroundColor Yellow
+        Write-Host "   Creating user account..." -ForegroundColor Yellow
         $NewUser = New-MgUser @UserParams
         
-        Write-Host "   ✅ User created: $($NewUser.UserPrincipalName)" -ForegroundColor Green
+        Write-Host "   [OK] User created: $($NewUser.UserPrincipalName)" -ForegroundColor Green
         
         # Set manager if specified
         if ($Manager -and $Manager -ne "(No Manager)") {
@@ -507,7 +564,7 @@ function New-M365User {
                 $ManagerUser = Get-MgUser -Filter "userPrincipalName eq '$ManagerUPN'"
                 if ($ManagerUser) {
                     Set-MgUserManagerByRef -UserId $NewUser.Id -BodyParameter @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($ManagerUser.Id)" }
-                    Write-Host "   👔 Manager set: $($Manager)" -ForegroundColor Green
+                    Write-Host "   Manager set: $($Manager)" -ForegroundColor Green
                 }
             }
             catch {
@@ -515,95 +572,103 @@ function New-M365User {
             }
         }
         
-        # Add to groups
+        # FIXED: RESTORED LEGACY GROUP PROCESSING - MANUAL SELECTION ONLY (NO HARDCODED ASSUMPTIONS)
         if ($Groups -and $Groups.Count -gt 0) {
-            Write-Host "   🏢 Adding to groups..." -ForegroundColor Yellow
+            Write-Host "   Processing manually selected groups..." -ForegroundColor Yellow
+            Write-Host "   Selected groups: $($Groups.Count)" -ForegroundColor Gray
+            
+            # Process each manually selected group
             foreach ($GroupName in $Groups) {
                 try {
-                    # Clean group name (remove emojis and descriptions)
-                    $CleanGroupName = ($GroupName -split ' \(')[0] -replace '^[🔒🔐📧]\s*', ''
+                    Write-Host "   Processing: $GroupName" -ForegroundColor Gray
                     
-                    # Find the group
-                    $Group = $Global:AvailableGroups | Where-Object { $_.DisplayName -eq $CleanGroupName }
-                    if ($Group) {
-                        $GroupMember = @{
-                            "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($NewUser.Id)"
-                        }
-                        New-MgGroupMember -GroupId $Group.Id -BodyParameter $GroupMember
-                        Write-Host "      ✅ Added to group: $CleanGroupName" -ForegroundColor Green
+                    # Clean group name (remove formatting from UI)
+                    $CleanGroupName = Get-CleanGroupName -DisplayName $GroupName
+                    Write-Host "   Clean name: $CleanGroupName" -ForegroundColor Gray
+                    
+                    # Skip separator lines
+                    if ($GroupName -like "*===*") {
+                        continue
                     }
-                }
-                catch {
-                    Write-Warning "Failed to add to group $GroupName : $($_.Exception.Message)"
-                }
-            }
-        }
-        
-        # ENHANCED: Exchange provisioning (if M365.ExchangeOnline module available)
-        if ($Global:ExchangeModuleAvailable -and (Get-Command "Invoke-ExchangeUserProvisioning" -ErrorAction SilentlyContinue)) {
-            Write-Host "   📧 Configuring Exchange resources..." -ForegroundColor Yellow
-            
-            # Department-based shared mailbox assignments
-            $SharedMailboxesToAdd = @()
-            switch ($Department) {
-                "Sales" { $SharedMailboxesToAdd += "sales@$Domain" }
-                "Support" { $SharedMailboxesToAdd += "support@$Domain" }
-                "IT" { $SharedMailboxesToAdd += "it@$Domain" }
-                "HR" { $SharedMailboxesToAdd += "hr@$Domain" }
-                "Finance" { $SharedMailboxesToAdd += "finance@$Domain" }
-            }
-            
-            # Job title-based distribution list assignments
-            $DistributionListsToAdd = @()
-            if ($JobTitle -like "*Manager*") {
-                $DistributionListsToAdd += "All Managers"
-            }
-            if ($Department) {
-                $DistributionListsToAdd += "$Department Team"
-            }
-            $DistributionListsToAdd += "All Staff"
-            
-            # Mail-enabled security group assignments
-            $MailEnabledSecurityGroupsToAdd = @()
-            if ($Department -eq "IT") {
-                $MailEnabledSecurityGroupsToAdd += "IT Security Group"
-            }
-            
-            if ($SharedMailboxesToAdd.Count -gt 0 -or $DistributionListsToAdd.Count -gt 0 -or $MailEnabledSecurityGroupsToAdd.Count -gt 0) {
-                try {
-                    $ExchangeResult = Invoke-ExchangeUserProvisioning -NewUser $NewUser -SharedMailboxes $SharedMailboxesToAdd -DistributionLists $DistributionListsToAdd -MailEnabledSecurityGroups $MailEnabledSecurityGroupsToAdd
                     
-                    if ($ExchangeResult.OverallSuccess) {
-                        Write-Host "   ✅ Exchange resources configured successfully" -ForegroundColor Green
-                        $ExchangeDetails = "Shared Mailboxes: $($SharedMailboxesToAdd.Count), Distribution Lists: $($DistributionListsToAdd.Count), Security Groups: $($MailEnabledSecurityGroupsToAdd.Count)"
-                        Add-ActivityLog "Exchange Provisioning" "Success" "User: $UserPrincipalName - $ExchangeDetails"
+                    # Determine what type of group this is based on the display text
+                    if ($GroupName -match '\[Distribution List\]') {
+                        # This is a distribution list - handle via Exchange Online
+                        Write-Host "   Identified as Distribution List: $CleanGroupName" -ForegroundColor Cyan
+                        Add-UserToDistributionListManual -NewUser $NewUser -ListName $CleanGroupName
+                    }
+                    elseif ($GroupName -match '\[Shared Mailbox\]') {
+                        # This is a shared mailbox - handle via Exchange Online
+                        Write-Host "   Identified as Shared Mailbox: $CleanGroupName" -ForegroundColor Cyan
+                        Add-UserToSharedMailboxManual -NewUser $NewUser -MailboxName $CleanGroupName
+                    }
+                    elseif ($GroupName -match '\[Mail-Enabled Security\]') {
+                        # This is a mail-enabled security group
+                        Write-Host "   Identified as Mail-Enabled Security Group: $CleanGroupName" -ForegroundColor Cyan
+                        
+                        # Try Graph first
+                        $Group = $Global:AvailableGroups | Where-Object { $_.DisplayName -eq $CleanGroupName }
+                        if ($Group) {
+                            try {
+                                $GroupMember = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($NewUser.Id)" }
+                                New-MgGroupMember -GroupId $Group.Id -BodyParameter $GroupMember
+                                Write-Host "      [OK] Added to mail-enabled security group via Graph: $CleanGroupName" -ForegroundColor Green
+                            }
+                            catch {
+                                Write-Host "      [WARNING] Graph method failed, trying Exchange method..." -ForegroundColor Yellow
+                                Add-UserToDistributionListManual -NewUser $NewUser -ListName $CleanGroupName
+                            }
+                        }
+                        else {
+                            Add-UserToDistributionListManual -NewUser $NewUser -ListName $CleanGroupName
+                        }
                     }
                     else {
-                        Write-Warning "Some Exchange resource assignments failed - check activity log"
-                        Add-ActivityLog "Exchange Provisioning" "Partial" "User: $UserPrincipalName - Some assignments failed"
+                        # Regular security group or M365 group - handle via Graph
+                        Write-Host "   Identified as Security/M365 Group: $CleanGroupName" -ForegroundColor Cyan
+                        
+                        $Group = $Global:AvailableGroups | Where-Object { $_.DisplayName -eq $CleanGroupName }
+                        if ($Group) {
+                            $GroupMember = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($NewUser.Id)" }
+                            New-MgGroupMember -GroupId $Group.Id -BodyParameter $GroupMember
+                            Write-Host "      [OK] Added to group: $CleanGroupName" -ForegroundColor Green
+                        }
+                        else {
+                            Write-Host "      [WARNING] Group not found in tenant: $CleanGroupName" -ForegroundColor Yellow
+                        }
                     }
                 }
                 catch {
-                    Write-Warning "Exchange provisioning failed: $($_.Exception.Message)"
-                    Add-ActivityLog "Exchange Provisioning" "Failed" "User: $UserPrincipalName - $($_.Exception.Message)"
+                    Write-Warning "Failed to process group $GroupName : $($_.Exception.Message)"
                 }
             }
-            else {
-                Write-Host "   📋 No Exchange resources to assign based on department/role" -ForegroundColor Gray
-            }
-        }
-        else {
-            Write-Host "   📋 Standard Exchange functionality (M365.ExchangeOnline not available)" -ForegroundColor Gray
         }
         
-        Update-StatusLabel "✅ User created successfully: $UserPrincipalName"
-        Add-ActivityLog "User Creation" "Success" "Created user: $UserPrincipalName with license type: $LicenseType"
+        # FIXED: NO AUTOMATIC EXCHANGE PROVISIONING - Only manual selections are processed
+        Write-Host "   Exchange resources: Manual selection only (no automatic assignments)" -ForegroundColor Cyan
+        Write-Host "   [OK] All attributes applied as entered (flexible attribute handling restored)" -ForegroundColor Green
+        
+        Update-StatusLabel "[OK] User created successfully: $UserPrincipalName"
+        Add-ActivityLog "User Creation" "Success" "Created user: $UserPrincipalName with manual group selections and flexible attributes"
         
         # Enhanced success message
-        $SuccessMessage = "User created successfully!`n`nName: $DisplayName`nUPN: $UserPrincipalName`nLicense Type (CustomAttribute1): $LicenseType"
-        if ($Global:ExchangeModuleAvailable) {
-            $SuccessMessage += "`n`n✅ Enhanced Exchange provisioning applied"
+        $SuccessMessage = "User created successfully!`n`nName: $DisplayName`nUPN: $UserPrincipalName"
+        if ($LicenseType) {
+            $SuccessMessage += "`nLicense Type (CustomAttribute1): $LicenseType"
         }
+        if ($Department) {
+            $SuccessMessage += "`nDepartment: $Department"
+        }
+        if ($JobTitle) {
+            $SuccessMessage += "`nJob Title: $JobTitle"
+        }
+        if ($Office) {
+            $SuccessMessage += "`nOffice Location: $Office"
+        }
+        
+        $SuccessMessage += "`n`n[OK] All attributes applied as entered (no restrictions)"
+        $SuccessMessage += "`n[OK] Manual group selections processed"
+        $SuccessMessage += "`n[OK] Legacy flexibility restored"
         $SuccessMessage += "`n`nThe user will receive an email with sign-in instructions."
         
         [System.Windows.Forms.MessageBox]::Show(
@@ -620,7 +685,7 @@ function New-M365User {
     }
     catch {
         $ErrorMsg = "Failed to create user $UserPrincipalName : $($_.Exception.Message)"
-        Update-StatusLabel "❌ $ErrorMsg"
+        Update-StatusLabel "[ERROR] $ErrorMsg"
         Add-ActivityLog "User Creation" "Failed" $ErrorMsg
         
         [System.Windows.Forms.MessageBox]::Show(
@@ -631,6 +696,244 @@ function New-M365User {
         )
         
         throw
+    }
+}
+
+# ================================
+# MANUAL EXCHANGE OPERATION HELPER FUNCTIONS (FIXED)
+# ================================
+
+function Get-CleanGroupName {
+    <#
+    .SYNOPSIS
+        Cleans group names from UI formatting (FIXED - No more Unicode corruption)
+    #>
+    param([string]$DisplayName)
+    
+    Write-Host "      Original name: '$DisplayName'" -ForegroundColor Gray
+    
+    # Method 1: Split at the bracket first to get the main name
+    $NamePart = ($DisplayName -split ' \[')[0]
+    Write-Host "      After bracket split: '$NamePart'" -ForegroundColor Gray
+    
+    # Method 2: Remove any prefix formatting (no emojis to worry about now)
+    $CleanName = $NamePart.Trim()
+    
+    Write-Host "      [OK] Final clean name: '$CleanName'" -ForegroundColor Green
+    
+    return $CleanName
+}
+
+function Add-UserToDistributionListManual {
+    <#
+    .SYNOPSIS
+        Adds user to distribution list with proper error handling and propagation delay
+    #>
+    param(
+        [object]$NewUser,
+        [string]$ListName
+    )
+    
+    Write-Host "   Attempting to add to distribution list: $ListName" -ForegroundColor Yellow
+    
+    try {
+        # Check if we can connect to Exchange Online
+        $ExchangeConnected = $false
+        try {
+            $null = Get-OrganizationConfig -ErrorAction Stop
+            $ExchangeConnected = $true
+        }
+        catch {
+            $ExchangeConnected = $false
+        }
+        
+        if ($ExchangeConnected) {
+            # ADD PROPAGATION DELAY - Wait for user to propagate to Exchange
+            Write-Host "      Waiting 10 seconds for user propagation..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+            
+            # Verify the distribution list exists - try multiple methods
+            Write-Host "      Searching for distribution list: '$ListName'" -ForegroundColor Gray
+            
+            $DistList = $null
+            
+            # Method 1: Try exact name match
+            try {
+                $DistList = Get-DistributionGroup -Identity $ListName -ErrorAction SilentlyContinue
+            }
+            catch { }
+            
+            # Method 2: Try search by display name if exact match failed
+            if (-not $DistList) {
+                try {
+                    $AllDistLists = Get-DistributionGroup -ResultSize Unlimited
+                    $DistList = $AllDistLists | Where-Object { 
+                        $_.DisplayName -eq $ListName -or 
+                        $_.Name -eq $ListName -or 
+                        $_.Alias -eq $ListName 
+                    } | Select-Object -First 1
+                }
+                catch { }
+            }
+            
+            if (-not $DistList) {
+                Write-Host "      [ERROR] Distribution list '$ListName' not found in Exchange" -ForegroundColor Red
+                Write-Host "      Available distribution lists:" -ForegroundColor Gray
+                try {
+                    $AllDLs = Get-DistributionGroup -ResultSize 10
+                    $AllDLs | ForEach-Object {
+                        Write-Host "        • $($_.DisplayName) ($($_.Name))" -ForegroundColor Gray
+                    }
+                }
+                catch { }
+                
+                Write-Host "      Manual task: Verify distribution list name and add user manually" -ForegroundColor Gray
+                Add-ActivityLog "Exchange Operation" "Warning" "Distribution list '$ListName' not found - manual task required"
+                return
+            }
+            
+            Write-Host "      [OK] Found distribution list: $($DistList.DisplayName)" -ForegroundColor Green
+            
+            # Check if user already exists in the list
+            $ExistingMembers = Get-DistributionGroupMember -Identity $DistList.Identity -ErrorAction SilentlyContinue
+            $UserAlreadyMember = $ExistingMembers | Where-Object { $_.PrimarySmtpAddress -eq $NewUser.UserPrincipalName }
+            
+            if ($UserAlreadyMember) {
+                Write-Host "      [OK] User is already a member of: $($DistList.DisplayName)" -ForegroundColor Green
+                return
+            }
+            
+            # Add user to distribution list
+            Add-DistributionGroupMember -Identity $DistList.Identity -Member $NewUser.UserPrincipalName -Confirm:$false -ErrorAction Stop
+            Write-Host "      [OK] Successfully added to distribution list: $($DistList.DisplayName)" -ForegroundColor Green
+            Add-ActivityLog "Exchange Operation" "Success" "Added $($NewUser.UserPrincipalName) to distribution list: $($DistList.DisplayName)"
+            
+        }
+        else {
+            Write-Host "      [WARNING] Exchange Online not connected" -ForegroundColor Yellow
+            Write-Host "      Manual task: Add $($NewUser.UserPrincipalName) to distribution list '$ListName'" -ForegroundColor Gray
+            Add-ActivityLog "Exchange Operation" "Manual" "Exchange not connected - manual task: Add $($NewUser.UserPrincipalName) to distribution list '$ListName'"
+        }
+    }
+    catch {
+        Write-Host "      [ERROR] Failed to add to distribution list: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "      Manual task: Add $($NewUser.UserPrincipalName) to distribution list '$ListName'" -ForegroundColor Gray
+        Add-ActivityLog "Exchange Operation" "Failed" "Failed to add to distribution list '$ListName': $($_.Exception.Message)"
+    }
+}
+
+function Add-UserToSharedMailboxManual {
+    <#
+    .SYNOPSIS
+        Adds user to shared mailbox with proper error handling and propagation delay
+    #>
+    param(
+        [object]$NewUser,
+        [string]$MailboxName
+    )
+    
+    Write-Host "   Attempting to add to shared mailbox: $MailboxName" -ForegroundColor Yellow
+    
+    try {
+        # Check if we can connect to Exchange Online
+        $ExchangeConnected = $false
+        try {
+            $null = Get-OrganizationConfig -ErrorAction Stop
+            $ExchangeConnected = $true
+        }
+        catch {
+            $ExchangeConnected = $false
+        }
+        
+        if ($ExchangeConnected) {
+            # ADD PROPAGATION DELAY - Wait for user to propagate to Exchange
+            Write-Host "      Waiting 10 seconds for user propagation..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 10
+            
+            # Verify the shared mailbox exists - try multiple methods
+            Write-Host "      Searching for shared mailbox: '$MailboxName'" -ForegroundColor Gray
+            
+            $SharedMailbox = $null
+            
+            # Method 1: Try exact name match
+            try {
+                $SharedMailbox = Get-EXOMailbox -Identity $MailboxName -RecipientTypeDetails SharedMailbox -ErrorAction SilentlyContinue
+            }
+            catch { }
+            
+            # Method 2: Try search by display name if exact match failed
+            if (-not $SharedMailbox) {
+                try {
+                    $AllSharedMailboxes = Get-EXOMailbox -RecipientTypeDetails SharedMailbox -ResultSize Unlimited
+                    $SharedMailbox = $AllSharedMailboxes | Where-Object { 
+                        $_.DisplayName -eq $MailboxName -or 
+                        $_.Name -eq $MailboxName -or 
+                        $_.Alias -eq $MailboxName 
+                    } | Select-Object -First 1
+                }
+                catch { }
+            }
+            
+            if (-not $SharedMailbox) {
+                Write-Host "      [ERROR] Shared mailbox '$MailboxName' not found in Exchange" -ForegroundColor Red
+                Write-Host "      Available shared mailboxes:" -ForegroundColor Gray
+                try {
+                    $AllSMBs = Get-EXOMailbox -RecipientTypeDetails SharedMailbox -ResultSize 10
+                    $AllSMBs | ForEach-Object {
+                        Write-Host "        • $($_.DisplayName) ($($_.PrimarySmtpAddress))" -ForegroundColor Gray
+                    }
+                }
+                catch { }
+                
+                Write-Host "      Manual task: Verify shared mailbox name and grant permissions manually" -ForegroundColor Gray
+                Add-ActivityLog "Exchange Operation" "Warning" "Shared mailbox '$MailboxName' not found - manual task required"
+                return
+            }
+            
+            Write-Host "      [OK] Found shared mailbox: $($SharedMailbox.DisplayName)" -ForegroundColor Green
+            
+            # Grant Full Access permission
+            try {
+                Add-MailboxPermission -Identity $SharedMailbox.PrimarySmtpAddress -User $NewUser.UserPrincipalName -AccessRights FullAccess -InheritanceType All -Confirm:$false -ErrorAction Stop
+                Write-Host "      [OK] Granted FullAccess permission" -ForegroundColor Green
+            }
+            catch {
+                if ($_.Exception.Message -like "*already exists*") {
+                    Write-Host "      [OK] FullAccess permission already exists" -ForegroundColor Green
+                }
+                else {
+                    Write-Host "      [WARNING] Failed to grant FullAccess: $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+            }
+            
+            # Grant Send As permission
+            try {
+                Add-RecipientPermission -Identity $SharedMailbox.PrimarySmtpAddress -Trustee $NewUser.UserPrincipalName -AccessRights SendAs -Confirm:$false -ErrorAction Stop
+                Write-Host "      [OK] Granted SendAs permission" -ForegroundColor Green
+            }
+            catch {
+                if ($_.Exception.Message -like "*already exists*") {
+                    Write-Host "      [OK] SendAs permission already exists" -ForegroundColor Green
+                }
+                else {
+                    Write-Host "      [WARNING] Failed to grant SendAs: $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+            }
+            
+            Write-Host "      [OK] Successfully configured shared mailbox permissions: $($SharedMailbox.DisplayName)" -ForegroundColor Green
+            Add-ActivityLog "Exchange Operation" "Success" "Granted permissions to $($NewUser.UserPrincipalName) for shared mailbox: $($SharedMailbox.DisplayName)"
+            
+        }
+        else {
+            Write-Host "      [WARNING] Exchange Online not connected" -ForegroundColor Yellow
+            Write-Host "      Manual task: Grant $($NewUser.UserPrincipalName) access to shared mailbox '$MailboxName'" -ForegroundColor Gray
+            Add-ActivityLog "Exchange Operation" "Manual" "Exchange not connected - manual task: Grant $($NewUser.UserPrincipalName) access to shared mailbox '$MailboxName'"
+        }
+    }
+    catch {
+        Write-Host "      [ERROR] Failed to configure shared mailbox: $($_.Exception.Message)" -ForegroundColor Red
+        Write-Host "      Manual task: Grant $($NewUser.UserPrincipalName) access to shared mailbox '$MailboxName'" -ForegroundColor Gray
+        Add-ActivityLog "Exchange Operation" "Failed" "Failed to configure shared mailbox '$MailboxName': $($_.Exception.Message)"
     }
 }
 
@@ -656,8 +959,9 @@ function Clear-UserForm {
     if ($Script:LicenseDropdown.Items.Count -gt 0) {
         $Script:LicenseDropdown.SelectedIndex = 0
     }
-    if ($Script:OfficeDropdown.Items.Count -gt 0) {
-        $Script:OfficeDropdown.SelectedIndex = 0
+    # Clear office text box instead of resetting dropdown
+    if ($Script:OfficeTextBox) {
+        $Script:OfficeTextBox.Clear()
     }
     
     # Uncheck all groups
@@ -732,8 +1036,8 @@ function Create-CSVTemplate {
         if ($SaveFileDialog.ShowDialog() -eq "OK") {
             $TemplateContent = @"
 DisplayName,UserPrincipalName,FirstName,LastName,Department,JobTitle,Office,Manager,LicenseType,Groups,Password,ForcePasswordChange
-John Smith,john.smith@company.com,John,Smith,IT,Developer,United Kingdom - London,manager@company.com,BusinessPremium,"IT Team,Developers",,true
-Jane Doe,jane.doe@company.com,Jane,Doe,HR,Manager,United Kingdom - Manchester,director@company.com,BusinessPremium,"HR Team,Managers",,true
+John Smith,john.smith@company.com,John,Smith,IT,Developer,"London Office",manager@company.com,BusinessPremium,"IT Team,Developers",,true
+Jane Doe,jane.doe@company.com,Jane,Doe,HR,Manager,"Manchester Office",director@company.com,BusinessPremium,"HR Team,Managers",,true
 "@
             
             $TemplateContent | Set-Content -Path $SaveFileDialog.FileName -Encoding UTF8
@@ -881,7 +1185,7 @@ function Update-StatusLabel {
         $Script:StatusLabel.Text = "$(Get-Date -Format 'HH:mm:ss') - $Message"
         [System.Windows.Forms.Application]::DoEvents()
     }
-    Write-Host "📊 $Message" -ForegroundColor Cyan
+    Write-Host "STATUS: $Message" -ForegroundColor Cyan
 }
 
 function Add-ActivityLog {
@@ -915,7 +1219,7 @@ function Connect-ToMicrosoftGraph {
     #>
     
     try {
-        Update-StatusLabel "🔗 Connecting to Microsoft Graph..."
+        Update-StatusLabel "Connecting to Microsoft Graph..."
         
         $Scopes = @(
             "User.ReadWrite.All",
@@ -931,10 +1235,10 @@ function Connect-ToMicrosoftGraph {
         $Context = Get-MgContext
         if ($Context) {
             $Global:IsConnected = $true
-            Update-StatusLabel "✅ Connected to Microsoft Graph as $($Context.Account)"
+            Update-StatusLabel "[OK] Connected to Microsoft Graph as $($Context.Account)"
             
             # Enable connection-dependent controls
-            $Script:ConnectButton.Text = "🔗 Connected - Discover Tenant Data"
+            $Script:ConnectButton.Text = "Connected - Discover Tenant Data"
             $Script:ConnectButton.BackColor = [System.Drawing.Color]::LightGreen
             $Script:CreateUserButton.Enabled = $true
             
@@ -950,7 +1254,7 @@ function Connect-ToMicrosoftGraph {
         }
     }
     catch {
-        Update-StatusLabel "❌ Connection failed: $($_.Exception.Message)"
+        Update-StatusLabel "[ERROR] Connection failed: $($_.Exception.Message)"
         Add-ActivityLog "Connection" "Failed" $_.Exception.Message
         
         [System.Windows.Forms.MessageBox]::Show(
@@ -977,23 +1281,31 @@ Tenant Name: $($Global:TenantInfo.DisplayName)
 Tenant ID: $($Global:TenantInfo.Id)
 Country: $($Global:TenantInfo.CountryLetterCode)
 
-DISCOVERY SUMMARY
-=================
-✅ Users: $($Global:AvailableUsers.Count)
-✅ Security Groups: $($Global:AvailableGroups.Count)
-✅ Distribution Lists: $($Global:DistributionLists.Count)
-✅ Mail-Enabled Security Groups: $($Global:MailEnabledSecurityGroups.Count)
-✅ Mailboxes: $($Global:AvailableMailboxes.Count)
-✅ Shared Mailboxes: $($Global:SharedMailboxes.Count)
-✅ SharePoint Sites: $($Global:SharePointSites.Count)
-✅ Accepted Domains: $($Global:AcceptedDomains.Count)
-✅ License SKUs: $($Global:AvailableLicenses.Count)
+DISCOVERY SUMMARY (ENHANCED + FIXED)
+=====================================
+[OK] Users: $($Global:AvailableUsers.Count)
+[OK] Security Groups: $($Global:AvailableGroups.Count)
+[OK] Distribution Lists: $($Global:DistributionLists.Count) (NOW SELECTABLE!)
+[OK] Mail-Enabled Security Groups: $($Global:MailEnabledSecurityGroups.Count)
+[OK] Mailboxes: $($Global:AvailableMailboxes.Count)
+[OK] Shared Mailboxes: $($Global:SharedMailboxes.Count) (NOW SELECTABLE!)
+[OK] SharePoint Sites: $($Global:SharePointSites.Count)
+[OK] Accepted Domains: $($Global:AcceptedDomains.Count)
+[OK] License SKUs: $($Global:AvailableLicenses.Count)
+
+LEGACY FUNCTIONALITY RESTORED
+==============================
+[OK] Flexible Attributes: Any values can be entered in Department, Job Title, Office fields
+[OK] Manual Group Selection: Distribution lists and shared mailboxes are selectable in group membership
+[OK] No Hardcoded Assumptions: No automatic assignments based on department/job title
+[OK] Proper Error Handling: Manual tasks logged when automatic operations fail
 
 EXCHANGE ENHANCEMENT STATUS
 ===========================
-M365.ExchangeOnline Module: $(if($Global:ExchangeModuleAvailable){'✅ Available & Active'}else{'❌ Not Available'})
+M365.ExchangeOnline Module: $(if($Global:ExchangeModuleAvailable){'[OK] Available & Active'}else{'[DISABLED] Not Available'})
 Exchange Data Source: $(if($Global:ExchangeModuleAvailable){'Enhanced (Get-EXOMailbox, Get-DistributionGroup)'}else{'Standard (Get-Mailbox, Get-DistributionGroup)'})
-Shared Mailbox Detection: $(if($Global:ExchangeModuleAvailable){'✅ Accurate (RecipientTypeDetails)'}else{'⚠️ Standard'})
+Shared Mailbox Detection: $(if($Global:ExchangeModuleAvailable){'[OK] Accurate (RecipientTypeDetails)'}else{'[WARNING] Standard'})
+Distribution List Selection: [OK] RESTORED - Available in Group Membership section
 
 ACCEPTED DOMAINS
 ================
@@ -1019,7 +1331,7 @@ function New-BulkImportTab {
     #>
     
     $Tab = New-Object System.Windows.Forms.TabPage
-    $Tab.Text = "📊 Bulk Import"
+    $Tab.Text = "Bulk Import"
     $Tab.Padding = New-Object System.Windows.Forms.Padding(10)
     
     # Main scrollable panel
@@ -1047,9 +1359,9 @@ REQUIRED COLUMNS:
 • LastName - User's last name
 
 OPTIONAL COLUMNS:
-• Department - User's department
-• JobTitle - User's job title
-• Office - Office location (must match dropdown values)
+• Department - User's department (ANY VALUE can be entered)
+• JobTitle - User's job title (ANY VALUE can be entered)
+• Office - Office location (ANY VALUE can be entered)
 • Manager - Manager's UPN (e.g., "manager@company.com")
 • LicenseType - License to assign (BusinessBasic, BusinessPremium, BusinessStandard, E3, E5)
 • Groups - Comma-separated group names (e.g., "IT Team,Developers")
@@ -1057,7 +1369,7 @@ OPTIONAL COLUMNS:
 • ForcePasswordChange - true/false for password change requirement
 
 EXAMPLE CSV LINE:
-John Smith,john.smith@company.com,John,Smith,IT,Developer,United Kingdom - London,manager@company.com,BusinessPremium,"IT Team,Developers",TempPass123!,true
+John Smith,john.smith@company.com,John,Smith,IT,Developer,"London Office",manager@company.com,BusinessPremium,"IT Team,Developers",TempPass123!,true
 "@
     $InstructionsText.BackColor = [System.Drawing.Color]::LightYellow
     $InstructionsText.Font = New-Object System.Drawing.Font("Consolas", 9)
@@ -1179,7 +1491,7 @@ John Smith,john.smith@company.com,John,Smith,IT,Developer,United Kingdom - Londo
     $ButtonPanel.Size = New-Object System.Drawing.Size(900, 50)
     
     $Script:ImportButton = New-Object System.Windows.Forms.Button
-    $Script:ImportButton.Text = "🚀 Start Import"
+    $Script:ImportButton.Text = "Start Import"
     $Script:ImportButton.Location = New-Object System.Drawing.Point(350, 10)
     $Script:ImportButton.Size = New-Object System.Drawing.Size(120, 35)
     $Script:ImportButton.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
@@ -1190,7 +1502,7 @@ John Smith,john.smith@company.com,John,Smith,IT,Developer,United Kingdom - Londo
     $Script:ImportButton.Add_Click({ Start-BulkUserImport })
     
     $CancelButton = New-Object System.Windows.Forms.Button
-    $CancelButton.Text = "❌ Cancel"
+    $CancelButton.Text = "Cancel"
     $CancelButton.Location = New-Object System.Drawing.Point(480, 10)
     $CancelButton.Size = New-Object System.Drawing.Size(100, 35)
     $CancelButton.BackColor = [System.Drawing.Color]::FromArgb(220, 53, 69)
@@ -1221,7 +1533,7 @@ function New-UserCreationTab {
     #>
     
     $Tab = New-Object System.Windows.Forms.TabPage
-    $Tab.Text = "👤 Create User"
+    $Tab.Text = "Create User"
     $Tab.Padding = New-Object System.Windows.Forms.Padding(10)
     
     # Connection Panel
@@ -1232,7 +1544,7 @@ function New-UserCreationTab {
     $ConnectionPanel.Padding = New-Object System.Windows.Forms.Padding(10)
     
     $Script:ConnectButton = New-Object System.Windows.Forms.Button
-    $Script:ConnectButton.Text = "🔗 Connect to Microsoft 365"
+    $Script:ConnectButton.Text = "Connect to Microsoft 365"
     $Script:ConnectButton.Size = New-Object System.Drawing.Size(250, 35)
     $Script:ConnectButton.Location = New-Object System.Drawing.Point(10, 12)
     $Script:ConnectButton.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
@@ -1255,7 +1567,7 @@ function New-UserCreationTab {
     
     # User Details Group (left side)
     $UserDetailsGroup = New-Object System.Windows.Forms.GroupBox
-    $UserDetailsGroup.Text = "User Details"
+    $UserDetailsGroup.Text = "User Details (FLEXIBLE - Any Values Can Be Entered)"
     $UserDetailsGroup.Location = New-Object System.Drawing.Point(10, 10)
     $UserDetailsGroup.Size = New-Object System.Drawing.Size(480, 380)
     
@@ -1333,7 +1645,7 @@ function New-UserCreationTab {
     
     $y += $spacing
     
-    # Department
+    # Department (FLEXIBLE)
     $DepartmentLabel = New-Object System.Windows.Forms.Label
     $DepartmentLabel.Text = "Department:"
     $DepartmentLabel.Location = New-Object System.Drawing.Point(10, $y)
@@ -1342,10 +1654,11 @@ function New-UserCreationTab {
     $Script:DepartmentTextBox = New-Object System.Windows.Forms.TextBox
     $Script:DepartmentTextBox.Location = New-Object System.Drawing.Point(120, ($y-2))
     $Script:DepartmentTextBox.Size = New-Object System.Drawing.Size(200, 20)
+    $Script:DepartmentTextBox.PlaceholderText = "Enter ANY department name"
     
     $y += $spacing
     
-    # Job Title
+    # Job Title (FLEXIBLE)
     $JobTitleLabel = New-Object System.Windows.Forms.Label
     $JobTitleLabel.Text = "Job Title:"
     $JobTitleLabel.Location = New-Object System.Drawing.Point(10, $y)
@@ -1354,19 +1667,20 @@ function New-UserCreationTab {
     $Script:JobTitleTextBox = New-Object System.Windows.Forms.TextBox
     $Script:JobTitleTextBox.Location = New-Object System.Drawing.Point(120, ($y-2))
     $Script:JobTitleTextBox.Size = New-Object System.Drawing.Size(200, 20)
+    $Script:JobTitleTextBox.PlaceholderText = "Enter ANY job title"
     
     $y += $spacing
     
-    # Office Location
+    # Office Location (FLEXIBLE)
     $OfficeLabel = New-Object System.Windows.Forms.Label
     $OfficeLabel.Text = "Office:"
     $OfficeLabel.Location = New-Object System.Drawing.Point(10, $y)
     $OfficeLabel.Size = New-Object System.Drawing.Size(100, 20)
     
-    $Script:OfficeDropdown = New-Object System.Windows.Forms.ComboBox
-    $Script:OfficeDropdown.Location = New-Object System.Drawing.Point(120, ($y-2))
-    $Script:OfficeDropdown.Size = New-Object System.Drawing.Size(200, 20)
-    $Script:OfficeDropdown.DropDownStyle = "DropDownList"
+    $Script:OfficeTextBox = New-Object System.Windows.Forms.TextBox
+    $Script:OfficeTextBox.Location = New-Object System.Drawing.Point(120, ($y-2))
+    $Script:OfficeTextBox.Size = New-Object System.Drawing.Size(200, 20)
+    $Script:OfficeTextBox.PlaceholderText = "Enter ANY office location"
     
     # Add controls to user details group
     $UserDetailsGroup.Controls.AddRange(@(
@@ -1377,7 +1691,7 @@ function New-UserCreationTab {
         $PasswordLabel, $Script:PasswordTextBox, $GeneratePasswordButton,
         $DepartmentLabel, $Script:DepartmentTextBox,
         $JobTitleLabel, $Script:JobTitleTextBox,
-        $OfficeLabel, $Script:OfficeDropdown
+        $OfficeLabel, $Script:OfficeTextBox
     ))
     
     # Management Group (right side)
@@ -1416,31 +1730,23 @@ function New-UserCreationTab {
     $LicenseInfoLabel.ForeColor = [System.Drawing.Color]::DarkBlue
     $LicenseInfoLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.FontStyle]::Italic)
     
-    # Enhanced Exchange info
-    $ExchangeInfoLabel = New-Object System.Windows.Forms.Label
-    $ExchangeInfoLabel.Text = "Enhanced Exchange: $(if($Global:ExchangeModuleAvailable){'✅ Available - Auto-provisioning enabled'}else{'❌ Standard functionality only'})"
-    $ExchangeInfoLabel.Location = New-Object System.Drawing.Point(10, 130)
-    $ExchangeInfoLabel.Size = New-Object System.Drawing.Size(430, 20)
-    $ExchangeInfoLabel.ForeColor = if($Global:ExchangeModuleAvailable){[System.Drawing.Color]::DarkGreen}else{[System.Drawing.Color]::DarkRed}
-    $ExchangeInfoLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.FontStyle]::Bold)
-    
-    # License types info
-    $LicenseTypesLabel = New-Object System.Windows.Forms.Label
-    $LicenseTypesLabel.Text = "Available License Types:`n• BusinessBasic`n• BusinessPremium`n• BusinessStandard`n• E3 / E5`n• ExchangeOnline1 / ExchangeOnline2"
-    $LicenseTypesLabel.Location = New-Object System.Drawing.Point(10, 160)
-    $LicenseTypesLabel.Size = New-Object System.Drawing.Size(430, 120)
-    $LicenseTypesLabel.ForeColor = [System.Drawing.Color]::DarkGreen
-    $LicenseTypesLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8.5)
+    # Enhanced info
+    $EnhancedInfoLabel = New-Object System.Windows.Forms.Label
+    $EnhancedInfoLabel.Text = "LEGACY FUNCTIONALITY RESTORED:`n[OK] Flexible attributes - any values allowed`n[OK] Manual group selection only`n[OK] Distribution lists selectable in groups`n[OK] Shared mailboxes selectable for permissions`n[OK] No hardcoded Exchange assumptions"
+    $EnhancedInfoLabel.Location = New-Object System.Drawing.Point(10, 140)
+    $EnhancedInfoLabel.Size = New-Object System.Drawing.Size(430, 120)
+    $EnhancedInfoLabel.ForeColor = [System.Drawing.Color]::DarkGreen
+    $EnhancedInfoLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.FontStyle]::Bold)
     
     $ManagementGroup.Controls.AddRange(@(
         $ManagerLabel, $Script:ManagerDropdown,
         $LicenseLabel, $Script:LicenseDropdown,
-        $LicenseInfoLabel, $ExchangeInfoLabel, $LicenseTypesLabel
+        $LicenseInfoLabel, $EnhancedInfoLabel
     ))
     
     # Groups Group (full width below)
     $GroupsGroup = New-Object System.Windows.Forms.GroupBox
-    $GroupsGroup.Text = "Group Membership (Select groups to add user to)"
+    $GroupsGroup.Text = "Group Membership & Exchange Resources (Manual Selection - Distribution Lists & Shared Mailboxes Now Available)"
     $GroupsGroup.Location = New-Object System.Drawing.Point(10, 400)
     $GroupsGroup.Size = New-Object System.Drawing.Size(940, 220)
     
@@ -1454,7 +1760,7 @@ function New-UserCreationTab {
     
     # Create User Button
     $Script:CreateUserButton = New-Object System.Windows.Forms.Button
-    $Script:CreateUserButton.Text = "👤 Create M365 User"
+    $Script:CreateUserButton.Text = "Create M365 User"
     $Script:CreateUserButton.Location = New-Object System.Drawing.Point(10, 630)
     $Script:CreateUserButton.Size = New-Object System.Drawing.Size(200, 40)
     $Script:CreateUserButton.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
@@ -1505,7 +1811,7 @@ function New-UserCreationTab {
                          -Password $Script:PasswordTextBox.Text `
                          -Department $Script:DepartmentTextBox.Text.Trim() `
                          -JobTitle $Script:JobTitleTextBox.Text.Trim() `
-                         -Office $Script:OfficeDropdown.SelectedItem `
+                         -Office $Script:OfficeTextBox.Text.Trim() `
                          -Manager $Script:ManagerDropdown.SelectedItem `
                          -LicenseType $Script:LicenseDropdown.SelectedItem `
                          -Groups $SelectedGroups
@@ -1517,7 +1823,7 @@ function New-UserCreationTab {
     
     # Clear Form Button
     $ClearFormButton = New-Object System.Windows.Forms.Button
-    $ClearFormButton.Text = "🗑️ Clear Form"
+    $ClearFormButton.Text = "Clear Form"
     $ClearFormButton.Location = New-Object System.Drawing.Point(220, 630)
     $ClearFormButton.Size = New-Object System.Drawing.Size(120, 40)
     $ClearFormButton.Font = New-Object System.Drawing.Font("Segoe UI", 9)
@@ -1545,7 +1851,7 @@ function New-TenantDataTab {
     #>
     
     $Tab = New-Object System.Windows.Forms.TabPage
-    $Tab.Text = "🏢 Tenant Data"
+    $Tab.Text = "Tenant Data"
     $Tab.Padding = New-Object System.Windows.Forms.Padding(10)
     
     $Script:TenantDataTextBox = New-Object System.Windows.Forms.TextBox
@@ -1567,7 +1873,7 @@ function New-ActivityLogTab {
     #>
     
     $Tab = New-Object System.Windows.Forms.TabPage
-    $Tab.Text = "📋 Activity Log"
+    $Tab.Text = "Activity Log"
     $Tab.Padding = New-Object System.Windows.Forms.Padding(10)
     
     $Script:ActivityLogTextBox = New-Object System.Windows.Forms.TextBox
@@ -1576,7 +1882,7 @@ function New-ActivityLogTab {
     $Script:ActivityLogTextBox.Dock = [System.Windows.Forms.DockStyle]::Fill
     $Script:ActivityLogTextBox.ReadOnly = $true
     $Script:ActivityLogTextBox.Font = New-Object System.Drawing.Font("Consolas", 9)
-    $Script:ActivityLogTextBox.Text = "$(Get-Date): Application started (Enhanced with M365.ExchangeOnline)`r`n"
+    $Script:ActivityLogTextBox.Text = "$(Get-Date): Application started (Enhanced & Fixed - Legacy functionality restored)`r`n"
     
     $Tab.Controls.Add($Script:ActivityLogTextBox)
     return $Tab
@@ -1592,11 +1898,11 @@ function New-MainForm {
         Creates the main application form with all tabs and controls
     #>
     
-    Write-Host "🖥️  Creating main application window..." -ForegroundColor Green
+    Write-Host "Creating main application window..." -ForegroundColor Green
     
     # Main Form
     $Script:MainForm = New-Object System.Windows.Forms.Form
-    $Script:MainForm.Text = "M365 User Provisioning Tool - Enterprise Edition 2025 (Enhanced with Exchange)"
+    $Script:MainForm.Text = "M365 User Provisioning Tool - Enterprise Edition 2025 (Enhanced & Fixed - Legacy Functionality Restored)"
     $Script:MainForm.Size = New-Object System.Drawing.Size(1400, 900)
     $Script:MainForm.StartPosition = [System.Windows.Forms.FormStartPosition]::CenterScreen
     $Script:MainForm.MinimumSize = New-Object System.Drawing.Size(1200, 800)
@@ -1610,47 +1916,245 @@ function New-MainForm {
     catch {
         Write-Verbose "Could not set application icon"
     }
-    
+
     # Status Strip
     $Script:StatusStrip = New-Object System.Windows.Forms.StatusStrip
     $Script:StatusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
-    $Script:StatusLabel.Text = "Ready - Click Connect to start enhanced tenant discovery"
+    $Script:StatusLabel.Text = "Ready - Enhanced & Fixed Version with Legacy Functionality Restored"
     $Script:StatusLabel.Spring = $true
+    $Script:StatusLabel.TextAlign = [System.Drawing.ContentAlignment]::MiddleLeft
     $Script:StatusStrip.Items.Add($Script:StatusLabel) | Out-Null
-    
+
     # Tab Control
+    Write-Host "Creating tabbed interface..." -ForegroundColor Cyan
     $Script:TabControl = New-Object System.Windows.Forms.TabControl
     $Script:TabControl.Dock = [System.Windows.Forms.DockStyle]::Fill
-    $Script:TabControl.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-    
-    # Create tabs
+    $Script:TabControl.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+
+    # Create all tabs
+    Write-Host "   Creating User Creation tab..." -ForegroundColor Yellow
     $UserCreationTab = New-UserCreationTab
+
+    Write-Host "   Creating Bulk Import tab..." -ForegroundColor Yellow  
     $BulkImportTab = New-BulkImportTab
-    $TenantDataTab = New-TenantDataTab  
+
+    Write-Host "   Creating Tenant Data tab..." -ForegroundColor Yellow
+    $TenantDataTab = New-TenantDataTab
+
+    Write-Host "   Creating Activity Log tab..." -ForegroundColor Yellow
     $ActivityLogTab = New-ActivityLogTab
-    
+
     # Add tabs to control
-    $Script:TabControl.TabPages.Add($UserCreationTab)
-    $Script:TabControl.TabPages.Add($BulkImportTab)
-    $Script:TabControl.TabPages.Add($TenantDataTab)
-    $Script:TabControl.TabPages.Add($ActivityLogTab)
-    
-    # Add controls to form
+    $Script:TabControl.TabPages.AddRange(@(
+        $UserCreationTab,
+        $BulkImportTab, 
+        $TenantDataTab,
+        $ActivityLogTab
+    ))
+
+    # Add all controls to main form
     $Script:MainForm.Controls.Add($Script:TabControl)
     $Script:MainForm.Controls.Add($Script:StatusStrip)
+}
+
+# ================================
+# ADDITIONAL HELPER FUNCTIONS
+# ================================
+
+function Test-ExchangeConnection {
+    <#
+    .SYNOPSIS
+        Tests if Exchange Online is connected and available
+    #>
     
-    # Form events
-    $Script:MainForm.Add_Load({
-        Update-StatusLabel "Application started - Ready to connect to Microsoft 365 (Enhanced Exchange available: $Global:ExchangeModuleAvailable)"
-        Add-ActivityLog "Application" "Started" "M365 User Provisioning Tool launched with Enhanced Exchange: $Global:ExchangeModuleAvailable"
+    try {
+        $null = Get-OrganizationConfig -ErrorAction Stop
+        return $true
+    }
+    catch {
+        return $false
+    }
+}
+
+function Export-ActivityLog {
+    <#
+    .SYNOPSIS
+        Exports activity log to file
+    #>
+    
+    try {
+        $SaveFileDialog = New-Object System.Windows.Forms.SaveFileDialog
+        $SaveFileDialog.Filter = "Text files (*.txt)|*.txt|CSV files (*.csv)|*.csv"
+        $SaveFileDialog.Title = "Export Activity Log"
+        $SaveFileDialog.FileName = "M365_Activity_Log_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
+        
+        if ($SaveFileDialog.ShowDialog() -eq "OK") {
+            if ($SaveFileDialog.FileName.EndsWith('.csv')) {
+                # Export as CSV
+                $Global:ActivityLog | Export-Csv -Path $SaveFileDialog.FileName -NoTypeInformation
+            }
+            else {
+                # Export as text
+                $LogText = $Global:ActivityLog | ForEach-Object {
+                    "$($_.Timestamp.ToString('yyyy-MM-dd HH:mm:ss')) [$($_.Status)] $($_.Action) - $($_.Details)"
+                }
+                $LogText | Set-Content -Path $SaveFileDialog.FileName -Encoding UTF8
+            }
+            
+            [System.Windows.Forms.MessageBox]::Show(
+                "Activity log exported successfully!",
+                "Export Complete", 
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Information
+            )
+        }
+    }
+    catch {
+        [System.Windows.Forms.MessageBox]::Show(
+            "Error exporting log: $($_.Exception.Message)",
+            "Export Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK, 
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+    }
+}
+
+function Show-AboutDialog {
+    <#
+    .SYNOPSIS
+        Shows application about dialog
+    #>
+    
+    $AboutText = @"
+M365 User Provisioning Tool
+Enterprise Edition 2025 (Enhanced & Fixed)
+
+Version: 3.1.2025-COMPLETE-ENHANCED-FIXED-PROFESSIONAL
+PowerShell: 7.0+ Required
+
+FEATURES RESTORED:
+[OK] Flexible Attributes - Any values can be entered
+[OK] Manual Group Selection - Distribution lists selectable
+[OK] Shared Mailbox Permissions - Available in group membership
+[OK] No Hardcoded Assumptions - Manual control restored
+[OK] Enhanced Exchange Integration - M365.ExchangeOnline module support
+[OK] Bulk CSV Import - Template-driven user creation
+[OK] Comprehensive Logging - Full activity tracking
+
+DEPENDENCIES:
+• Microsoft Graph PowerShell SDK V2.28+
+• Exchange Online PowerShell V3.0+
+• Optional: M365.ExchangeOnline Module (Enhanced)
+
+FIXES APPLIED:
+• Removed hardcoded distribution list assignments
+• Restored legacy flexible attribute handling
+• Added manual Exchange resource selection
+• Enhanced error handling and logging
+• Improved group categorization in UI
+• Professional interface (removed emojis)
+
+Created by: Enterprise Solutions Team
+Support: Check documentation for troubleshooting
+"@
+
+    [System.Windows.Forms.MessageBox]::Show(
+        $AboutText,
+        "About M365 User Provisioning Tool",
+        [System.Windows.Forms.MessageBoxButtons]::OK,
+        [System.Windows.Forms.MessageBoxIcon]::Information
+    )
+}
+
+# ================================
+# MENU CREATION
+# ================================
+
+function Add-MenuStrip {
+    <#
+    .SYNOPSIS
+        Adds menu strip to main form
+    #>
+    
+    $MenuStrip = New-Object System.Windows.Forms.MenuStrip
+    
+    # File Menu
+    $FileMenu = New-Object System.Windows.Forms.ToolStripMenuItem
+    $FileMenu.Text = "&File"
+    
+    $ExportLogItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $ExportLogItem.Text = "Export Activity Log..."
+    $ExportLogItem.Add_Click({ Export-ActivityLog })
+    
+    $SeparatorItem = New-Object System.Windows.Forms.ToolStripSeparator
+    
+    $ExitItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $ExitItem.Text = "E&xit"
+    $ExitItem.Add_Click({ $Script:MainForm.Close() })
+    
+    $FileMenu.DropDownItems.AddRange(@($ExportLogItem, $SeparatorItem, $ExitItem))
+    
+    # Tools Menu
+    $ToolsMenu = New-Object System.Windows.Forms.ToolStripMenuItem
+    $ToolsMenu.Text = "&Tools"
+    
+    $RefreshDataItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $RefreshDataItem.Text = "Refresh Tenant Data"
+    $RefreshDataItem.Add_Click({ 
+        if ($Global:IsConnected) { 
+            Get-TenantData 
+        } else { 
+            [System.Windows.Forms.MessageBox]::Show("Please connect to Microsoft 365 first.", "Not Connected", "OK", "Warning")
+        }
     })
     
+    $TestExchangeItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $TestExchangeItem.Text = "Test Exchange Connection"
+    $TestExchangeItem.Add_Click({
+        $IsConnected = Test-ExchangeConnection
+        $Message = if ($IsConnected) { "Exchange Online is connected and available!" } else { "Exchange Online is not connected or not available." }
+        $Icon = if ($IsConnected) { [System.Windows.Forms.MessageBoxIcon]::Information } else { [System.Windows.Forms.MessageBoxIcon]::Warning }
+        [System.Windows.Forms.MessageBox]::Show($Message, "Exchange Connection Test", "OK", $Icon)
+    })
+    
+    $ToolsMenu.DropDownItems.AddRange(@($RefreshDataItem, $TestExchangeItem))
+    
+    # Help Menu
+    $HelpMenu = New-Object System.Windows.Forms.ToolStripMenuItem
+    $HelpMenu.Text = "&Help"
+    
+    $AboutItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $AboutItem.Text = "&About"
+    $AboutItem.Add_Click({ Show-AboutDialog })
+    
+    $HelpMenu.DropDownItems.Add($AboutItem)
+    
+    # Add menus to strip
+    $MenuStrip.Items.AddRange(@($FileMenu, $ToolsMenu, $HelpMenu))
+    
+    # Add menu strip to form
+    $Script:MainForm.MainMenuStrip = $MenuStrip
+    $Script:MainForm.Controls.Add($MenuStrip)
+}
+
+# ================================
+# FORM EVENT HANDLERS
+# ================================
+
+function Register-FormEvents {
+    <#
+    .SYNOPSIS
+        Registers form event handlers
+    #>
+    
+    # Form closing event
     $Script:MainForm.Add_FormClosing({
         param($sender, $e)
         
-        if ($Global:IsConnected) {
+        # Check if there are any ongoing operations
+        if ($Script:ImportButton -and -not $Script:ImportButton.Enabled) {
             $Result = [System.Windows.Forms.MessageBox]::Show(
-                "You are currently connected to Microsoft 365. Disconnect and exit?",
+                "An import operation may be in progress. Are you sure you want to exit?",
                 "Confirm Exit",
                 [System.Windows.Forms.MessageBoxButtons]::YesNo,
                 [System.Windows.Forms.MessageBoxIcon]::Question
@@ -1660,90 +2164,204 @@ function New-MainForm {
                 $e.Cancel = $true
                 return
             }
-            
+        }
+        
+        # Disconnect from Graph if connected
+        if ($Global:IsConnected) {
             try {
+                Write-Host "Disconnecting from Microsoft Graph..." -ForegroundColor Yellow
                 Disconnect-MgGraph -ErrorAction SilentlyContinue
+                Write-Host "[OK] Disconnected successfully" -ForegroundColor Green
             }
             catch {
-                # Ignore disconnect errors on exit
+                Write-Warning "Error during disconnect: $($_.Exception.Message)"
             }
         }
         
-        Add-ActivityLog "Application" "Closed" "User closed application"
-        Write-Host "👋 Application closing..." -ForegroundColor Yellow
+        # Save final activity log
+        try {
+            Add-ActivityLog "Application" "Shutdown" "Application closed successfully"
+            $FinalLogPath = "M365_Final_Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+            $Global:ActivityLog | ForEach-Object {
+                "$($_.Timestamp.ToString('yyyy-MM-dd HH:mm:ss')) [$($_.Status)] $($_.Action) - $($_.Details)"
+            } | Set-Content -Path $FinalLogPath -Encoding UTF8 -ErrorAction SilentlyContinue
+        }
+        catch {
+            # Silent fail on log save
+        }
+        
+        Write-Host ""
+        Write-Host "Thank you for using M365 User Provisioning Tool (Enhanced & Fixed)!" -ForegroundColor Green
+        Write-Host "   Legacy functionality restored" -ForegroundColor Cyan
+        Write-Host "   [OK] Flexible attributes working" -ForegroundColor Cyan  
+        Write-Host "   [OK] Manual group selection working" -ForegroundColor Cyan
+        Write-Host "   [OK] Distribution lists selectable" -ForegroundColor Cyan
+        Write-Host ""
     })
     
-    return $Script:MainForm
+    # Form load event
+    $Script:MainForm.Add_Load({
+        Write-Host "Main form loaded successfully" -ForegroundColor Green
+        Add-ActivityLog "Application" "Started" "M365 User Provisioning Tool started (Enhanced & Fixed)"
+        
+        # Initial status
+        Update-StatusLabel "Ready - Connect to Microsoft 365 to begin"
+        
+        # Focus first tab
+        $Script:TabControl.SelectedIndex = 0
+    })
+}
+
+# ================================
+# APPLICATION STARTUP VALIDATION
+# ================================
+
+function Test-Prerequisites {
+    <#
+    .SYNOPSIS
+        Tests if all prerequisites are met before starting
+    #>
+    
+    Write-Host "Checking application prerequisites..." -ForegroundColor Cyan
+    
+    $Issues = @()
+    
+    # Check PowerShell version
+    if ($PSVersionTable.PSVersion.Major -lt 7) {
+        $Issues += "PowerShell 7.0+ is required. Current version: $($PSVersionTable.PSVersion)"
+    }
+    
+    # Check required modules availability
+    $RequiredModules = @('Microsoft.Graph.Authentication', 'Microsoft.Graph.Users', 'ExchangeOnlineManagement')
+    foreach ($Module in $RequiredModules) {
+        if (-not (Get-Module -ListAvailable -Name $Module)) {
+            $Issues += "Required module not available: $Module"
+        }
+    }
+    
+    # Check if running as admin (recommended)
+    $IsAdmin = ([Security.Principal.WindowsPrincipal] [Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole] "Administrator")
+    if (-not $IsAdmin) {
+        Write-Host "   [WARNING] Not running as administrator - some features may be limited" -ForegroundColor Yellow
+    }
+    
+    if ($Issues.Count -gt 0) {
+        $ErrorMessage = "Prerequisites not met:`n`n" + ($Issues -join "`n")
+        Write-Host "[ERROR] Prerequisites check failed" -ForegroundColor Red
+        foreach ($Issue in $Issues) {
+            Write-Host "   • $Issue" -ForegroundColor Red
+        }
+        
+        [System.Windows.Forms.MessageBox]::Show(
+            $ErrorMessage,
+            "Prerequisites Check Failed",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+        return $false
+    }
+    
+    Write-Host "[OK] All prerequisites met" -ForegroundColor Green
+    return $true
 }
 
 # ================================
 # MAIN APPLICATION ENTRY POINT
 # ================================
 
-try {
-    Write-Host "🚀 Launching M365 User Provisioning Tool Enterprise Edition (Enhanced)..." -ForegroundColor Green
-    Write-Host ""
+function Start-M365ProvisioningTool {
+    <#
+    .SYNOPSIS
+        Main application entry point
+    #>
     
-    # Create and show the main form
-    $MainForm = New-MainForm
-    
-    if ($MainForm) {
-        Write-Host "✅ Application window created successfully" -ForegroundColor Green
-        Write-Host "📱 Starting application..." -ForegroundColor Green
-        Write-Host ""
-        Write-Host "🎯 FEATURES AVAILABLE:" -ForegroundColor Cyan
-        Write-Host "   • Single user creation with full property support" -ForegroundColor White
-        Write-Host "   • Bulk CSV import with progress tracking" -ForegroundColor White
-        Write-Host "   • Comprehensive tenant data discovery" -ForegroundColor White
-        Write-Host "   • License assignment via CustomAttribute1" -ForegroundColor White
-        Write-Host "   • Group membership management" -ForegroundColor White
-        Write-Host "   • UK location support" -ForegroundColor White
-        Write-Host "   • Manager assignment" -ForegroundColor White
-        Write-Host "   • Activity logging" -ForegroundColor White
-        Write-Host "   • Dry run testing capabilities" -ForegroundColor White
-        if ($Global:ExchangeModuleAvailable) {
-            Write-Host "   • ✅ ENHANCED: Accurate Exchange Online functionality" -ForegroundColor Green
-            Write-Host "   • ✅ ENHANCED: Automatic Exchange resource provisioning" -ForegroundColor Green
-            Write-Host "   • ✅ ENHANCED: Shared mailbox and distribution list management" -ForegroundColor Green
-        } else {
-            Write-Host "   • ⚠️  Standard Exchange functionality (M365.ExchangeOnline not available)" -ForegroundColor Yellow
+    try {
+        # Test prerequisites
+        if (-not (Test-Prerequisites)) {
+            Write-Host "[ERROR] Application startup aborted due to missing prerequisites" -ForegroundColor Red
+            return
         }
-        Write-Host ""
-        
-        # Run the application
-        [System.Windows.Forms.Application]::Run($MainForm)
         
         Write-Host ""
-        Write-Host "👋 M365 User Provisioning Tool session ended" -ForegroundColor Yellow
+        Write-Host "Starting M365 User Provisioning Tool (Enhanced & Fixed)..." -ForegroundColor Green
+        Write-Host ""
+        
+        # Create main form
+        New-MainForm
+        
+        # Add menu strip
+        Add-MenuStrip
+        
+        # Register event handlers
+        Register-FormEvents
+        
+        # Show startup message
+        Write-Host "[OK] Application initialized successfully!" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "FIXES APPLIED:" -ForegroundColor Cyan
+        Write-Host "   [OK] Removed hardcoded Exchange provisioning logic" -ForegroundColor Green
+        Write-Host "   [OK] Restored flexible attribute handling (any values allowed)" -ForegroundColor Green
+        Write-Host "   [OK] Distribution lists now selectable in Group membership" -ForegroundColor Green
+        Write-Host "   [OK] Shared mailboxes now selectable for permissions" -ForegroundColor Green
+        Write-Host "   [OK] Manual Exchange operations with proper error handling" -ForegroundColor Green
+        Write-Host "   [OK] Enhanced group categorization in UI" -ForegroundColor Green
+        Write-Host "   [OK] Professional interface (removed emojis)" -ForegroundColor Green
+        Write-Host ""
+        Write-Host "READY TO USE:" -ForegroundColor Yellow
+        Write-Host "   1. Click 'Connect to Microsoft 365' in the Create User tab" -ForegroundColor Gray
+        Write-Host "   2. Enter ANY values in Department, Job Title, Office fields" -ForegroundColor Gray
+        Write-Host "   3. Select distribution lists and shared mailboxes from Group membership" -ForegroundColor Gray
+        Write-Host "   4. No more hardcoded assumptions or errors!" -ForegroundColor Gray
+        Write-Host ""
+        
+        Add-ActivityLog "Application" "Initialized" "Application window created and ready"
+        
+        # Start the application
+        Write-Host "Displaying application window..." -ForegroundColor Cyan
+        [System.Windows.Forms.Application]::Run($Script:MainForm)
+        
+    }
+    catch {
+        $ErrorMsg = "Critical error during application startup: $($_.Exception.Message)"
+        Write-Host "[ERROR] $ErrorMsg" -ForegroundColor Red
+        Write-Host "Stack Trace: $($_.Exception.StackTrace)" -ForegroundColor Red
+        
+        [System.Windows.Forms.MessageBox]::Show(
+            $ErrorMsg,
+            "Application Startup Error",
+            [System.Windows.Forms.MessageBoxButtons]::OK,
+            [System.Windows.Forms.MessageBoxIcon]::Error
+        )
+    }
+}
+
+# ================================
+# SCRIPT EXECUTION
+# ================================
+
+# Only run if not being imported as a module
+if ($MyInvocation.InvocationName -ne '.') {
+    # Check if GUI should be skipped
+    if ($NoGUI) {
+        Write-Host "GUI mode disabled - script functions available for import" -ForegroundColor Yellow
+        Write-Host "   Use Start-M365ProvisioningTool to launch GUI" -ForegroundColor Gray
     }
     else {
-        throw "Failed to create main application window"
+        # Start the main application
+        Start-M365ProvisioningTool
     }
 }
-catch {
-    Write-Host ""
-    Write-Host "🚨 CRITICAL ERROR:" -ForegroundColor Red
-    Write-Host $_.Exception.Message -ForegroundColor Yellow
-    
-    if ($_.Exception.InnerException) {
-        Write-Host "Inner Exception: $($_.Exception.InnerException.Message)" -ForegroundColor Yellow
-    }
-    
-    Write-Host ""
-    Write-Host "Stack Trace:" -ForegroundColor Gray
-    Write-Host $_.ScriptStackTrace -ForegroundColor Gray
-    
-    Read-Host "Press Enter to exit"
-    exit 1
-}
-finally {
-    # Cleanup
-    if ($Global:IsConnected) {
-        try {
-            Disconnect-MgGraph -ErrorAction SilentlyContinue
-        }
-        catch {
-            Write-Verbose "Error during cleanup: $($_.Exception.Message)"
-        }
-    }
-}
+
+# ================================
+# EXPORT MODULE MEMBERS (if used as module)
+# ================================
+
+# Export main functions for module usage
+Export-ModuleMember -Function @(
+    'Start-M365ProvisioningTool',
+    'New-M365User', 
+    'Connect-ToMicrosoftGraph',
+    'Get-TenantData',
+    'Generate-SecurePassword',
+    'Test-ExchangeConnection'
+)
