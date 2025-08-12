@@ -1,9 +1,0 @@
-2025-08-12 10:32:18 [Initialized] Application - Application window created and ready
-2025-08-12 10:32:18 [Started] Application - M365 User Provisioning Tool started (Enhanced & Fixed)
-2025-08-12 10:32:26 [Success] Connection - Connected to Microsoft Graph as Tom@0rghl.onmicrosoft.com
-2025-08-12 10:32:31 [Success] Tenant Discovery - Discovered: 22 users, 23 groups, 19 mailboxes, 3 Exchange items
-2025-08-12 10:33:37 [Warning] Exchange Operation - Distribution list '� Marketing Team' not found - manual task required
-2025-08-12 10:33:38 [Warning] Exchange Operation - Shared mailbox '� Info' not found - manual task required
-2025-08-12 10:33:39 [Warning] Exchange Operation - Shared mailbox '� Sales' not found - manual task required
-2025-08-12 10:33:39 [Success] User Creation - Created user: TestUser2@0rghl.onmicrosoft.com with manual group selections and flexible attributes
-2025-08-12 10:40:07 [Shutdown] Application - Application closed successfully

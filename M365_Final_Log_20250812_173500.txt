@@ -1,0 +1,11 @@
+2025-08-12 11:09:30 [Initialized] Application - Application window created and ready
+2025-08-12 11:09:30 [Started] Application - M365 User Provisioning Tool started (Enhanced & Fixed)
+2025-08-12 11:09:39 [Success] Connection - Connected to Microsoft Graph as Tom@0rghl.onmicrosoft.com
+2025-08-12 11:09:46 [Success] Tenant Discovery - Discovered: 23 users, 23 groups, 19 mailboxes, 3 Exchange items
+2025-08-12 11:10:48 [Failed] Exchange Operation - Failed to add to distribution list 'Marketing Team': ||Couldn't find object "test3@0rghl.onmicrosoft.com". Please make sure that it was spelled correctly or specify a different object.
+2025-08-12 11:11:01 [Success] Exchange Operation - Granted permissions to test3@0rghl.onmicrosoft.com for shared mailbox: Info
+2025-08-12 11:11:14 [Success] Exchange Operation - Granted permissions to test3@0rghl.onmicrosoft.com for shared mailbox: Sales
+2025-08-12 11:11:14 [Success] User Creation - Created user: test3@0rghl.onmicrosoft.com with manual group selections and flexible attributes
+2025-08-12 11:13:20 [Success] Tenant Discovery - Discovered: 24 users, 23 groups, 19 mailboxes, 3 Exchange items
+2025-08-12 17:34:53 [Success] Tenant Discovery - Discovered: 24 users, 23 groups, 6 mailboxes, 3 Exchange items
+2025-08-12 17:35:00 [Shutdown] Application - Application closed successfully
