@@ -37,6 +37,8 @@ $Script:FirstNameTextBox = $null
 $Script:LastNameTextBox = $null
 $Script:DisplayNameTextBox = $null
 $Script:UsernameTextBox = $null
+$Script:UsernameStatusLabel = $null
+$Script:UsernameCheckTimer = $null
 $Script:PasswordTextBox = $null
 $Script:DepartmentTextBox = $null
 $Script:JobTitleTextBox = $null
@@ -439,6 +441,36 @@ function New-UserCreationTab {
     $Script:DomainDropdown.Size = New-Object System.Drawing.Size(150, 20)
     $Script:DomainDropdown.DropDownStyle = "DropDownList"
     
+    # Username availability status label
+    $Script:UsernameStatusLabel = New-Object System.Windows.Forms.Label
+    $Script:UsernameStatusLabel.Location = New-Object System.Drawing.Point(450, $y)
+    $Script:UsernameStatusLabel.Size = New-Object System.Drawing.Size(200, 20)
+    $Script:UsernameStatusLabel.Text = ""
+    $Script:UsernameStatusLabel.Font = New-Object System.Drawing.Font("Microsoft Sans Serif", 8, [System.Drawing.FontStyle]::Italic)
+    
+    # Add event handlers for real-time username checking
+    $Script:UsernameTextBox.Add_TextChanged({
+        # Use a timer to avoid checking on every keystroke
+        if ($Script:UsernameCheckTimer) {
+            $Script:UsernameCheckTimer.Stop()
+            $Script:UsernameCheckTimer.Dispose()
+        }
+        
+        $Script:UsernameCheckTimer = New-Object System.Windows.Forms.Timer
+        $Script:UsernameCheckTimer.Interval = 500  # 500ms delay
+        $Script:UsernameCheckTimer.Add_Tick({
+            Update-UsernameAvailabilityStatus
+            $Script:UsernameCheckTimer.Stop()
+            $Script:UsernameCheckTimer.Dispose()
+            $Script:UsernameCheckTimer = $null
+        })
+        $Script:UsernameCheckTimer.Start()
+    })
+    
+    $Script:DomainDropdown.Add_SelectedIndexChanged({
+        Update-UsernameAvailabilityStatus
+    })
+    
     $y += $spacing
     
     # Password
@@ -526,7 +558,7 @@ function New-UserCreationTab {
         $FirstNameLabel, $Script:FirstNameTextBox,
         $LastNameLabel, $Script:LastNameTextBox,
         $DisplayNameLabel, $Script:DisplayNameTextBox,
-        $UsernameLabel, $Script:UsernameTextBox, $AtLabel, $Script:DomainDropdown,
+        $UsernameLabel, $Script:UsernameTextBox, $AtLabel, $Script:DomainDropdown, $Script:UsernameStatusLabel,
         $PasswordLabel, $Script:PasswordTextBox, $GeneratePasswordButton,
         $DepartmentLabel, $Script:DepartmentTextBox,
         $JobTitleLabel, $Script:JobTitleTextBox,
@@ -943,6 +975,18 @@ function Invoke-CreateUser {
         return
     }
     
+    # Check username availability one final time
+    $usernameCheck = Test-UsernameAvailability -Username $Script:UsernameTextBox.Text.Trim() -Domain $Script:DomainDropdown.SelectedItem
+    if ($usernameCheck.Available -eq $false) {
+        [System.Windows.Forms.MessageBox]::Show("Username '$($Script:UsernameTextBox.Text.Trim())@$($Script:DomainDropdown.SelectedItem)' is already taken. Please choose a different username.", "Username Not Available", [System.Windows.Forms.MessageBoxButtons]::OK, [System.Windows.Forms.MessageBoxIcon]::Warning)
+        return
+    }
+    
+    # Show confirmation dialog before creating user
+    if (-not (Show-UserCreationConfirmation)) {
+        return  # User cancelled
+    }
+    
     # Get selected groups
     $SelectedGroups = @()
     for ($i = 0; $i -lt $Script:GroupsCheckedListBox.Items.Count; $i++) {
@@ -1137,6 +1181,122 @@ function Clear-AllDropdowns {
     }
 }
 
+function Test-UsernameAvailability {
+    <#
+    .SYNOPSIS
+        Checks if a username is available in the tenant
+    #>
+    param(
+        [string]$Username,
+        [string]$Domain
+    )
+    
+    if (-not $Username -or -not $Domain) {
+        return @{ Available = $null; Message = "Enter username and select domain" }
+    }
+    
+    $UserPrincipalName = "$Username@$Domain"
+    
+    try {
+        # Check if we're connected to Microsoft Graph
+        $context = Get-MgContext -ErrorAction SilentlyContinue
+        if (-not $context) {
+            return @{ Available = $null; Message = "Not connected to Microsoft 365" }
+        }
+        
+        # Try to find the user
+        $existingUser = Get-MgUser -Filter "userPrincipalName eq '$UserPrincipalName'" -ErrorAction SilentlyContinue
+        
+        if ($existingUser) {
+            return @{ Available = $false; Message = "Username already exists" }
+        } else {
+            return @{ Available = $true; Message = "Username available" }
+        }
+    } catch {
+        return @{ Available = $null; Message = "Error checking availability: $($_.Exception.Message)" }
+    }
+}
+
+function Update-UsernameAvailabilityStatus {
+    <#
+    .SYNOPSIS
+        Updates the username availability status label
+    #>
+    if (-not $Script:UsernameStatusLabel) {
+        return
+    }
+    
+    $username = $Script:UsernameTextBox.Text.Trim()
+    $domain = $Script:DomainDropdown.SelectedItem
+    
+    if (-not $username) {
+        $Script:UsernameStatusLabel.Text = ""
+        $Script:UsernameStatusLabel.ForeColor = [System.Drawing.Color]::Black
+        return
+    }
+    
+    if (-not $domain) {
+        $Script:UsernameStatusLabel.Text = "Select domain"
+        $Script:UsernameStatusLabel.ForeColor = [System.Drawing.Color]::Orange
+        return
+    }
+    
+    $result = Test-UsernameAvailability -Username $username -Domain $domain
+    
+    $Script:UsernameStatusLabel.Text = $result.Message
+    
+    switch ($result.Available) {
+        $true { $Script:UsernameStatusLabel.ForeColor = [System.Drawing.Color]::Green }
+        $false { $Script:UsernameStatusLabel.ForeColor = [System.Drawing.Color]::Red }
+        $null { $Script:UsernameStatusLabel.ForeColor = [System.Drawing.Color]::Orange }
+    }
+}
+
+function Show-UserCreationConfirmation {
+    <#
+    .SYNOPSIS
+        Shows confirmation dialog before creating user
+    #>
+    $firstName = $Script:FirstNameTextBox.Text.Trim()
+    $lastName = $Script:LastNameTextBox.Text.Trim()
+    $username = $Script:UsernameTextBox.Text.Trim()
+    $domain = $Script:DomainDropdown.SelectedItem
+    $department = $Script:DepartmentTextBox.Text.Trim()
+    $jobTitle = $Script:JobTitleTextBox.Text.Trim()
+    $license = $Script:LicenseTypeDropdown.SelectedItem
+    
+    $userPrincipalName = "$username@$domain"
+    
+    # Count selected groups
+    $selectedGroupCount = 0
+    for ($i = 0; $i -lt $Script:GroupsCheckedListBox.Items.Count; $i++) {
+        if ($Script:GroupsCheckedListBox.GetItemChecked($i)) {
+            $selectedGroupCount++
+        }
+    }
+    
+    # Build confirmation message
+    $message = "Please confirm user creation:`n`n"
+    $message += "Name: $firstName $lastName`n"
+    $message += "Email: $userPrincipalName`n"
+    
+    if ($department) { $message += "Department: $department`n" }
+    if ($jobTitle) { $message += "Job Title: $jobTitle`n" }
+    if ($license) { $message += "License: $license`n" }
+    if ($selectedGroupCount -gt 0) { $message += "Groups: $selectedGroupCount selected`n" }
+    
+    $message += "`nCreate this user?"
+    
+    $result = [System.Windows.Forms.MessageBox]::Show(
+        $message,
+        "Confirm User Creation",
+        [System.Windows.Forms.MessageBoxButtons]::YesNo,
+        [System.Windows.Forms.MessageBoxIcon]::Question
+    )
+    
+    return ($result -eq [System.Windows.Forms.DialogResult]::Yes)
+}
+
 function Refresh-TenantDataViews {
     if ($Script:TenantDataLoaded) {
         Update-TenantDataDisplay
@@ -1149,6 +1309,7 @@ function Clear-UserCreationForm {
     if ($Script:LastNameTextBox) { $Script:LastNameTextBox.Clear() }
     if ($Script:DisplayNameTextBox) { $Script:DisplayNameTextBox.Clear() }
     if ($Script:UsernameTextBox) { $Script:UsernameTextBox.Clear() }
+    if ($Script:UsernameStatusLabel) { $Script:UsernameStatusLabel.Text = "" }
     if ($Script:PasswordTextBox) { $Script:PasswordTextBox.Clear() }
     if ($Script:DepartmentTextBox) { $Script:DepartmentTextBox.Clear() }
     if ($Script:JobTitleTextBox) { $Script:JobTitleTextBox.Clear() }
