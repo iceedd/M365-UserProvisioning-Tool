@@ -303,11 +303,15 @@ function New-UserCreationTab {
     $Script:RefreshDataButton.Enabled = $false
     
     $Script:DisconnectButton = New-Object System.Windows.Forms.Button
-    $Script:DisconnectButton.Text = "❌ Disconnect"
-    $Script:DisconnectButton.Size = New-Object System.Drawing.Size(120, 35)
-    $Script:DisconnectButton.Location = New-Object System.Drawing.Point(390, 15)
+    $Script:DisconnectButton.Text = "🔄 Switch Tenant"
+    $Script:DisconnectButton.Size = New-Object System.Drawing.Size(140, 35)
+    $Script:DisconnectButton.Location = New-Object System.Drawing.Point(380, 15)
     $Script:DisconnectButton.Font = New-Object System.Drawing.Font("Segoe UI", 9)
     $Script:DisconnectButton.Enabled = $false
+    
+    # Add tooltip for clarity
+    $switchTenantTooltip = New-Object System.Windows.Forms.ToolTip
+    $switchTenantTooltip.SetToolTip($Script:DisconnectButton, "Disconnect from current tenant and connect to a different Microsoft 365 tenant without restarting the application")
     
     # Connection event handlers
     $Script:ConnectButton.Add_Click({
@@ -342,13 +346,38 @@ function New-UserCreationTab {
     
     $Script:DisconnectButton.Add_Click({
         try {
-            if (Get-Command "Disconnect-FromMicrosoftGraph" -ErrorAction SilentlyContinue) {
-                Disconnect-FromMicrosoftGraph
+            # Show confirmation dialog for tenant switching
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                "This will disconnect from the current Microsoft 365 tenant and clear all data.`n`nYou can then connect to a different tenant without restarting the application.`n`nContinue with disconnect?",
+                "Switch to Different Tenant",
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Question
+            )
+            
+            if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+                Update-StatusLabel "🔄 Disconnecting from current tenant..."
+                Add-InfoLog "Disconnecting from tenant for tenant switch"
+                
+                if (Get-Command "Disconnect-FromMicrosoftGraph" -ErrorAction SilentlyContinue) {
+                    Disconnect-FromMicrosoftGraph
+                }
+                Update-UIAfterDisconnection
+                Update-StatusLabel "✅ Disconnected - Ready to connect to new tenant"
+                Add-SuccessLog "Successfully disconnected - ready for new tenant connection"
+                
+                # Show helpful message
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Successfully disconnected from the previous tenant.`n`nClick 'Connect' to sign in to a different Microsoft 365 tenant.",
+                    "Ready for New Tenant",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Information
+                )
             }
-            Update-UIAfterDisconnection
         }
         catch {
             Write-Warning "Disconnect failed: $($_.Exception.Message)"
+            Update-StatusLabel "❌ Disconnect failed"
+            Add-ErrorLog "Disconnect failed: $($_.Exception.Message)"
         }
     })
     
@@ -847,8 +876,17 @@ function Start-TenantDataDiscovery {
         Update-TenantDataDisplay
         $Script:TenantDataLoaded = $true
         
-        Update-StatusLabel "✅ Tenant discovery completed successfully"
-        Add-ActivityLog "Tenant discovery completed - $($Script:TenantUsers.Count) users, $($Script:TenantGroups.Count) groups, $($Script:TenantLicenses.Count) licenses"
+        # Show current tenant information in status
+        $tenantName = if ($Script:TenantInfo -and $Script:TenantInfo.DisplayName) { 
+            $Script:TenantInfo.DisplayName 
+        } elseif ($Script:TenantDomains -and $Script:TenantDomains.Count -gt 0) {
+            ($Script:TenantDomains | Where-Object { $_.IsInitial -eq $true } | Select-Object -First 1).Id
+        } else {
+            "Connected Tenant"
+        }
+        
+        Update-StatusLabel "✅ Connected to: $tenantName"
+        Add-ActivityLog "Tenant discovery completed for '$tenantName' - $($Script:TenantUsers.Count) users, $($Script:TenantGroups.Count) groups, $($Script:TenantLicenses.Count) licenses"
         
     }
     catch {
@@ -1060,14 +1098,52 @@ function Update-StatusLabel {
 }
 
 function Add-ActivityLog {
-    param([string]$Message)
+    param(
+        [string]$Message,
+        [string]$Level = "INFO"
+    )
     
+    $timestamp = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+    $logEntry = "$timestamp [$Level] - $Message"
+    
+    # Add to GUI log display
     if ($Script:ActivityLogTextBox) {
-        $LogEntry = "$(Get-Date -Format 'yyyy-MM-dd HH:mm:ss') - $Message"
-        $Script:ActivityLogTextBox.AppendText("$LogEntry`r`n")
+        $Script:ActivityLogTextBox.AppendText("$logEntry`r`n")
         $Script:ActivityLogTextBox.ScrollToCaret()
     }
+    
+    # Write to log file
+    try {
+        # Ensure Logs directory exists
+        $logsDir = Join-Path $PSScriptRoot "..\..\Logs"
+        if (-not (Test-Path $logsDir)) {
+            New-Item -Path $logsDir -ItemType Directory -Force | Out-Null
+        }
+        
+        # Create daily log file
+        $logFileName = "M365-UserProvisioning-$(Get-Date -Format 'yyyy-MM-dd').log"
+        $logFilePath = Join-Path $logsDir $logFileName
+        
+        # Write log entry to file
+        Add-Content -Path $logFilePath -Value $logEntry -Encoding UTF8
+        
+        # Log rotation - keep only last 30 days
+        $cutoffDate = (Get-Date).AddDays(-30)
+        Get-ChildItem -Path $logsDir -Filter "M365-UserProvisioning-*.log" | 
+            Where-Object { $_.CreationTime -lt $cutoffDate } | 
+            Remove-Item -Force -ErrorAction SilentlyContinue
+            
+    } catch {
+        # If file logging fails, at least show it in console
+        Write-Warning "Failed to write to log file: $($_.Exception.Message)"
+    }
 }
+
+# Helper logging functions for different levels
+function Add-InfoLog { param([string]$Message) Add-ActivityLog -Message $Message -Level "INFO" }
+function Add-WarnLog { param([string]$Message) Add-ActivityLog -Message $Message -Level "WARN" }
+function Add-ErrorLog { param([string]$Message) Add-ActivityLog -Message $Message -Level "ERROR" }
+function Add-SuccessLog { param([string]$Message) Add-ActivityLog -Message $Message -Level "SUCCESS" }
 
 function Update-UIAfterConnection {
     # Update connection buttons
@@ -1086,7 +1162,7 @@ function Update-UIAfterConnection {
     }
     
     Update-StatusLabel "✅ Connected - Starting tenant discovery..."
-    Add-ActivityLog "Connected to Microsoft 365"
+    Add-SuccessLog "Connected to Microsoft 365"
 }
 
 function Update-UIAfterDisconnection {
@@ -1105,12 +1181,18 @@ function Update-UIAfterDisconnection {
         $Script:DisconnectButton.Enabled = $false
     }
     
-    # Clear tenant data
+    # Clear all tenant-specific data for tenant switching
     Clear-AllDropdowns
+    Clear-UserCreationForm
     $Script:TenantDataLoaded = $false
     
-    Update-StatusLabel "Disconnected from Microsoft 365"
-    Add-ActivityLog "Disconnected from Microsoft 365"
+    # Clear username availability status
+    if ($Script:UsernameStatusLabel) {
+        $Script:UsernameStatusLabel.Text = ""
+    }
+    
+    Update-StatusLabel "Disconnected - Ready for new tenant"
+    Add-InfoLog "Disconnected and cleared tenant data"
 }
 
 function Update-DomainDropdown {
@@ -1357,5 +1439,13 @@ Export-ModuleMember -Function @(
     'Update-LicenseDropdown',
     'Clear-AllDropdowns',
     'Refresh-TenantDataViews',
-    'Clear-UserCreationForm'
+    'Clear-UserCreationForm',
+    'Test-UsernameAvailability',
+    'Update-UsernameAvailabilityStatus',
+    'Show-UserCreationConfirmation',
+    'Add-ActivityLog',
+    'Add-InfoLog',
+    'Add-WarnLog', 
+    'Add-ErrorLog',
+    'Add-SuccessLog'
 )

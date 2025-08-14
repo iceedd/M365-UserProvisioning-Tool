@@ -28,6 +28,7 @@ A comprehensive PowerShell-based application designed to simplify Microsoft 365 
 
 ### 🔧 **Key Features**
 - **No M365 Portal Navigation** - Everything from one interface
+- **Multi-Tenant Support** - Switch between different M365 tenants without restarting
 - **Intelligent Tenant Discovery** - Automatically finds available licenses, groups, and domains
 - **License Assignment** - Assigns appropriate M365 licenses during user creation
 - **Group Membership** - Add users to security and distribution groups

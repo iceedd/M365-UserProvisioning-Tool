@@ -159,9 +159,24 @@ You should see version 7.0 or higher.
 
 ### Connection Management
 - **Connect Button**: Establishes connection to Microsoft 365
-- **Disconnect Button**: Safely disconnects from services
+- **Switch Tenant Button**: Disconnect from current tenant and connect to a different one
 - **Refresh Data**: Updates tenant information
-- **Status Indicator**: Shows current connection state
+- **Status Indicator**: Shows current connected tenant name
+
+### Multi-Tenant Management
+The tool supports switching between different Microsoft 365 tenants without restarting:
+
+1. **Connect to initial tenant** using the Connect button
+2. **Work with users** in that tenant as needed
+3. **Click "Switch Tenant"** when you need to access a different organization
+4. **Confirm disconnection** - all current data will be cleared
+5. **Click Connect** to authenticate to the new tenant
+6. **Continue working** with the new tenant's data
+
+**Perfect for:**
+- **Managed Service Providers (MSPs)** managing multiple client tenants
+- **Organizations with multiple M365 environments** (dev/test/prod)
+- **Consultants** working across different client organizations
 
 ## Troubleshooting
 
