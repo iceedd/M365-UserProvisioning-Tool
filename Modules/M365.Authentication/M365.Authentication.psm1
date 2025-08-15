@@ -318,59 +318,162 @@ function Start-TenantDiscovery {
 function Disconnect-FromMicrosoftGraph {
     <#
     .SYNOPSIS
-        Disconnects from Microsoft Graph and Exchange Online
+        Completely disconnects from Microsoft Graph and Exchange Online for tenant switching
+    .DESCRIPTION
+        Performs a complete disconnection from all M365 services and clears all cached data.
+        This function is specifically designed to support tenant switching without restarting the application.
     .OUTPUTS
-        Returns disconnection result
+        Returns disconnection result with detailed status
     #>
     try {
         $Results = @()
+        Write-Verbose "Starting complete disconnection for tenant switching..."
         
-        # Disconnect Exchange Online if connected
-        if ($Script:ExchangeOnlineConnected) {
+        # AGGRESSIVE Exchange Online disconnection for tenant switching
+        Write-Verbose "Checking Exchange Online connection status..."
+        try {
+            # Try to get Exchange connection info to see if we're actually connected
+            $ExchangeConnection = Get-ConnectionInformation -ErrorAction SilentlyContinue
+            if ($ExchangeConnection) {
+                Write-Verbose "Exchange Online connection detected - forcing disconnection"
+                Write-Host "🔄 Force disconnecting from Exchange Online..." -ForegroundColor Yellow
+                Disconnect-ExchangeOnline -Confirm:$false -ErrorAction Stop
+                $Results += "Exchange Online force disconnected"
+                Write-Host "✅ Exchange Online disconnected" -ForegroundColor Green
+            } else {
+                Write-Verbose "No active Exchange Online connection detected"
+            }
+        }
+        catch {
+            Write-Verbose "Exchange connection check failed, attempting disconnect anyway"
+        }
+        
+        # Also try disconnection regardless of flags (for tenant switching)
+        try {
+            Write-Verbose "Attempting additional Exchange Online disconnect..."
+            Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+            $Results += "Exchange Online additional disconnect attempted"
+        }
+        catch {
+            Write-Verbose "Additional Exchange disconnect completed with warnings"
+        }
+        
+        # Reset connection flag
+        $Script:ExchangeOnlineConnected = $false
+        
+        # Disconnect Microsoft Graph if connected
+        if ($Script:IsConnected) {
             try {
-                Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
-                $Script:ExchangeOnlineConnected = $false
-                Write-Verbose "Disconnected from Exchange Online"
-                $Results += "Exchange Online disconnected"
+                Write-Verbose "Disconnecting from Microsoft Graph..."
+                Disconnect-MgGraph -ErrorAction Stop
+                $Script:IsConnected = $false
+                Write-Verbose "Successfully disconnected from Microsoft Graph"
+                $Results += "Microsoft Graph disconnected successfully"
             }
             catch {
-                Write-Warning "Exchange Online disconnection may have failed: $($_.Exception.Message)"
-                $Results += "Exchange Online disconnection uncertain"
+                Write-Warning "Microsoft Graph disconnection may have failed: $($_.Exception.Message)"
+                # Force the disconnection flag to false anyway for tenant switching
+                $Script:IsConnected = $false
+                $Results += "Microsoft Graph disconnection forced (may have warnings)"
             }
         }
         
-        if ($Script:IsConnected) {
-            Disconnect-MgGraph -ErrorAction Stop
-            $Script:IsConnected = $false
-            $Script:TenantInfo = $null
+        # Clear all cached tenant information
+        Write-Verbose "Clearing all cached tenant data..."
+        $Script:TenantInfo = $null
+        $Script:TenantData = @{
+            AvailableLicenses = @()
+            AvailableGroups = @()
+            AvailableUsers = @()
+            AvailableMailboxes = @()
+            DistributionLists = @()
+            MailEnabledSecurityGroups = @()
+            SharedMailboxes = @()
+            SharePointSites = @()
+            AcceptedDomains = @()
+        }
+        
+        # Clear any cached authentication tokens more aggressively
+        try {
+            Write-Verbose "Clearing Microsoft Graph authentication cache..."
             
-            # Clear cached data
-            $Script:TenantData = @{
-                AvailableLicenses = @()
-                AvailableGroups = @()
-                AvailableUsers = @()
-                AvailableMailboxes = @()
-                DistributionLists = @()
-                MailEnabledSecurityGroups = @()
-                SharedMailboxes = @()
-                SharePointSites = @()
-                AcceptedDomains = @()
+            # Clear any cached Graph context
+            $null = Disconnect-MgGraph -ErrorAction SilentlyContinue
+            
+            # Force clear any remaining context
+            if (Get-Command "Clear-MgContext" -ErrorAction SilentlyContinue) {
+                Clear-MgContext -ErrorAction SilentlyContinue
             }
             
-            Write-Verbose "Disconnected from Microsoft Graph"
-            $Results += "Microsoft Graph disconnected"
+            # Clear browser authentication cache if possible
+            try {
+                # Clear Microsoft Graph application cache folder if it exists
+                $GraphCacheFolder = Join-Path $env:USERPROFILE ".mg"
+                if (Test-Path $GraphCacheFolder) {
+                    Write-Verbose "Removing Graph cache folder: $GraphCacheFolder"
+                    Remove-Item $GraphCacheFolder -Recurse -Force -ErrorAction SilentlyContinue
+                }
+                
+                # Clear additional cache locations
+                $TokenCachePaths = @(
+                    "$env:LOCALAPPDATA\Microsoft\Graph",
+                    "$env:APPDATA\Microsoft\Graph", 
+                    "$env:TEMP\Microsoft Graph PowerShell"
+                )
+                
+                foreach ($CachePath in $TokenCachePaths) {
+                    if (Test-Path $CachePath) {
+                        Write-Verbose "Clearing cache path: $CachePath"
+                        Remove-Item $CachePath -Recurse -Force -ErrorAction SilentlyContinue
+                    }
+                }
+            }
+            catch {
+                Write-Verbose "Cache clearing completed with warnings: $($_.Exception.Message)"
+            }
+            
+            # Force garbage collection
+            [System.GC]::Collect()
+            [System.GC]::WaitForPendingFinalizers()
+            [System.GC]::Collect()  # Second collection to ensure cleanup
+            
+            Write-Verbose "Aggressive token clearing completed"
         }
+        catch {
+            Write-Verbose "Token clearing completed with warnings: $($_.Exception.Message)"
+        }
+        
+        Write-Verbose "Complete disconnection finished successfully"
         
         return @{
             Success = $true
             Message = $Results -join ", "
+            Details = @{
+                GraphDisconnected = -not $Script:IsConnected
+                ExchangeDisconnected = -not $Script:ExchangeOnlineConnected
+                TenantDataCleared = ($Script:TenantInfo -eq $null)
+                ReadyForNewTenant = $true
+            }
         }
     }
     catch {
-        Write-Error "Error during disconnection: $($_.Exception.Message)"
+        $ErrorMessage = "Critical error during disconnection: $($_.Exception.Message)"
+        Write-Error $ErrorMessage
+        
+        # Force all disconnection flags to false to allow reconnection attempt
+        $Script:IsConnected = $false
+        $Script:ExchangeOnlineConnected = $false
+        $Script:TenantInfo = $null
+        
         return @{
             Success = $false
-            Message = "Disconnection failed: $($_.Exception.Message)"
+            Message = $ErrorMessage
+            Details = @{
+                GraphDisconnected = $true  # Forced
+                ExchangeDisconnected = $true  # Forced
+                TenantDataCleared = $true  # Forced
+                ReadyForNewTenant = $true  # Forced for retry
+            }
         }
     }
 }

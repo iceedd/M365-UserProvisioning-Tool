@@ -31,6 +31,7 @@ $Script:TabControl = $null
 $Script:ConnectButton = $null
 $Script:DisconnectButton = $null
 $Script:RefreshDataButton = $null
+$Script:SwitchTenantMenuItem = $null
 
 # User creation form controls - COMPLETE SET
 $Script:FirstNameTextBox = $null
@@ -198,6 +199,66 @@ function New-MainForm {
         Write-Verbose "Could not set application icon"
     }
     
+    # Create Menu Bar
+    $MenuStrip = New-Object System.Windows.Forms.MenuStrip
+    
+    # Tools Menu
+    $ToolsMenu = New-Object System.Windows.Forms.ToolStripMenuItem
+    $ToolsMenu.Text = "&Tools"
+    
+    # Switch Tenant Menu Item
+    $Script:SwitchTenantMenuItem = New-Object System.Windows.Forms.ToolStripMenuItem
+    $Script:SwitchTenantMenuItem.Text = "🔄 &Switch Tenant"
+    $Script:SwitchTenantMenuItem.ShortcutKeys = [System.Windows.Forms.Keys]::Control -bor [System.Windows.Forms.Keys]::T
+    $Script:SwitchTenantMenuItem.Enabled = $false  # Initially disabled
+    
+    # Add click event for menu item (same as button)
+    $Script:SwitchTenantMenuItem.Add_Click({
+        try {
+            # Show confirmation dialog for tenant switching
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                "This will disconnect from the current Microsoft 365 tenant and clear all data.`n`nYou can then connect to a different tenant without restarting the application.`n`nContinue with disconnect?",
+                "Switch to Different Tenant",
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Question
+            )
+            
+            if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+                Update-StatusLabel "🔄 Disconnecting from current tenant..."
+                Add-InfoLog "Disconnecting from tenant for tenant switch"
+                
+                if (Get-Command "Disconnect-FromMicrosoftGraph" -ErrorAction SilentlyContinue) {
+                    Disconnect-FromMicrosoftGraph
+                }
+                Update-UIAfterDisconnection
+                Update-StatusLabel "✅ Disconnected - Ready to connect to new tenant"
+                Add-SuccessLog "Successfully disconnected - ready for new tenant connection"
+                
+                # Show helpful message
+                [System.Windows.Forms.MessageBox]::Show(
+                    "Successfully disconnected from the previous tenant.`n`nClick 'Connect' to sign in to a different Microsoft 365 tenant.",
+                    "Ready for New Tenant",
+                    [System.Windows.Forms.MessageBoxButtons]::OK,
+                    [System.Windows.Forms.MessageBoxIcon]::Information
+                )
+            }
+        }
+        catch {
+            Write-Warning "Disconnect failed: $($_.Exception.Message)"
+            Update-StatusLabel "❌ Disconnect failed"
+            Add-ErrorLog "Disconnect failed: $($_.Exception.Message)"
+        }
+    })
+    
+    # Add menu item to Tools menu
+    $ToolsMenu.DropDownItems.Add($Script:SwitchTenantMenuItem) | Out-Null
+    
+    # Add Tools menu to menu strip
+    $MenuStrip.Items.Add($ToolsMenu) | Out-Null
+    
+    # Set the menu strip as the form's main menu
+    $Form.MainMenuStrip = $MenuStrip
+    
     # Status strip at bottom
     $Script:StatusStrip = New-Object System.Windows.Forms.StatusStrip
     $Script:StatusLabel = New-Object System.Windows.Forms.ToolStripStatusLabel
@@ -224,6 +285,7 @@ function New-MainForm {
     $Script:TabControl.TabPages.Add($ActivityLogTab)
     
     # Add controls to form
+    $Form.Controls.Add($MenuStrip)
     $Form.Controls.Add($Script:TabControl)
     $Form.Controls.Add($Script:StatusStrip)
     
@@ -280,14 +342,14 @@ function New-UserCreationTab {
     $Tab.Padding = New-Object System.Windows.Forms.Padding(10)
     $Tab.AutoScroll = $true
     
-    # Connection Panel (Top)
+    # Connection Panel (Top) - Simplified layout for maximum compatibility
     $ConnectionPanel = New-Object System.Windows.Forms.Panel
     $ConnectionPanel.Height = 70
     $ConnectionPanel.Dock = "Top"
     $ConnectionPanel.BackColor = [System.Drawing.Color]::LightSteelBlue
     $ConnectionPanel.Padding = New-Object System.Windows.Forms.Padding(10)
     
-    # Connection buttons
+    # Connection buttons - Simplified two-button layout to ensure visibility
     $Script:ConnectButton = New-Object System.Windows.Forms.Button
     $Script:ConnectButton.Text = "🔗 Connect to M365"
     $Script:ConnectButton.Size = New-Object System.Drawing.Size(180, 35)
@@ -295,19 +357,23 @@ function New-UserCreationTab {
     $Script:ConnectButton.Font = New-Object System.Drawing.Font("Segoe UI", 10, [System.Drawing.FontStyle]::Bold)
     $Script:ConnectButton.BackColor = [System.Drawing.Color]::LightBlue
     
-    $Script:RefreshDataButton = New-Object System.Windows.Forms.Button
-    $Script:RefreshDataButton.Text = "🔄 Refresh Tenant Data"
-    $Script:RefreshDataButton.Size = New-Object System.Drawing.Size(180, 35)
-    $Script:RefreshDataButton.Location = New-Object System.Drawing.Point(200, 15)
-    $Script:RefreshDataButton.Font = New-Object System.Drawing.Font("Segoe UI", 9)
-    $Script:RefreshDataButton.Enabled = $false
-    
+    # Switch Tenant button - RIGHT NEXT to Connect button
     $Script:DisconnectButton = New-Object System.Windows.Forms.Button
     $Script:DisconnectButton.Text = "🔄 Switch Tenant"
-    $Script:DisconnectButton.Size = New-Object System.Drawing.Size(140, 35)
-    $Script:DisconnectButton.Location = New-Object System.Drawing.Point(380, 15)
-    $Script:DisconnectButton.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $Script:DisconnectButton.Size = New-Object System.Drawing.Size(160, 35)
+    $Script:DisconnectButton.Location = New-Object System.Drawing.Point(200, 15)  # Right next to Connect button
+    $Script:DisconnectButton.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
     $Script:DisconnectButton.Enabled = $false
+    $Script:DisconnectButton.BackColor = [System.Drawing.Color]::Orange  # High visibility color
+    $Script:DisconnectButton.ForeColor = [System.Drawing.Color]::White   # White text for contrast
+    
+    # Refresh button - Moved to right side
+    $Script:RefreshDataButton = New-Object System.Windows.Forms.Button
+    $Script:RefreshDataButton.Text = "🔄 Refresh Data"
+    $Script:RefreshDataButton.Size = New-Object System.Drawing.Size(140, 35)
+    $Script:RefreshDataButton.Location = New-Object System.Drawing.Point(370, 15)
+    $Script:RefreshDataButton.Font = New-Object System.Drawing.Font("Segoe UI", 9)
+    $Script:RefreshDataButton.Enabled = $false
     
     # Add tooltip for clarity
     $switchTenantTooltip = New-Object System.Windows.Forms.ToolTip
@@ -1161,6 +1227,11 @@ function Update-UIAfterConnection {
         $Script:DisconnectButton.Enabled = $true
     }
     
+    # Enable Switch Tenant menu item
+    if ($Script:SwitchTenantMenuItem) {
+        $Script:SwitchTenantMenuItem.Enabled = $true
+    }
+    
     Update-StatusLabel "✅ Connected - Starting tenant discovery..."
     Add-SuccessLog "Connected to Microsoft 365"
 }
@@ -1179,6 +1250,11 @@ function Update-UIAfterDisconnection {
     
     if ($Script:DisconnectButton) {
         $Script:DisconnectButton.Enabled = $false
+    }
+    
+    # Disable Switch Tenant menu item
+    if ($Script:SwitchTenantMenuItem) {
+        $Script:SwitchTenantMenuItem.Enabled = $false
     }
     
     # Clear all tenant-specific data for tenant switching

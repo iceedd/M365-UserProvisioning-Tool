@@ -732,6 +732,29 @@ function Invoke-ExchangeUserProvisioning {
 # MODULE EXPORTS
 # ================================
 
+function Clear-ExchangeDataCache {
+    <#
+    .SYNOPSIS
+        Clears all cached Exchange data for tenant switching
+    .DESCRIPTION
+        Clears the module-scoped Exchange data cache to ensure fresh data from new tenant
+    #>
+    [CmdletBinding()]
+    param()
+    
+    Write-Verbose "Clearing Exchange module data cache..."
+    
+    $Script:ExchangeData = @{
+        SharedMailboxes = @()
+        DistributionLists = @()
+        MailEnabledSecurityGroups = @()
+        AcceptedDomains = @()
+        LastRefresh = $null
+    }
+    
+    Write-Host "🧹 Exchange data cache cleared" -ForegroundColor Green
+}
+
 # Export all public functions
 Export-ModuleMember -Function @(
     'Get-ExchangeMailboxData',
@@ -743,5 +766,6 @@ Export-ModuleMember -Function @(
     'Get-AllExchangeData',
     'Invoke-ExchangeUserProvisioning',
     'Test-ExchangeOnlineConnection',
-    'Connect-ExchangeOnlineIfNeeded'
+    'Connect-ExchangeOnlineIfNeeded',
+    'Clear-ExchangeDataCache'
 )

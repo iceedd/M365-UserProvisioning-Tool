@@ -194,6 +194,46 @@ catch {
 Write-Host ""
 
 # ================================
+# M365.AUTHENTICATION MODULE LOADING (For Switch Tenant functionality)
+# ================================
+
+Write-Host "Loading M365.Authentication Module..." -ForegroundColor Cyan
+
+# Load custom M365.Authentication module for Switch Tenant functionality
+try {
+    if (Test-Path ".\Modules\M365.Authentication\M365.Authentication.psd1") {
+        Write-Host "   Loading M365.Authentication module..." -ForegroundColor Yellow
+        Import-Module ".\Modules\M365.Authentication\M365.Authentication.psd1" -Force -ErrorAction Stop
+        Write-Host "   [OK] M365.Authentication module loaded successfully!" -ForegroundColor Green
+        Write-Host "   Switch Tenant functionality available!" -ForegroundColor Green
+        $Global:AuthModuleAvailable = $true
+        
+        # Test if key functions are available
+        $AuthFunctions = Get-Command -Module M365.Authentication -ErrorAction SilentlyContinue
+        Write-Host "   Available Authentication functions: $($AuthFunctions.Count)" -ForegroundColor Cyan
+        
+        # Specifically check for the disconnect function
+        if (Get-Command "Disconnect-FromMicrosoftGraph" -ErrorAction SilentlyContinue) {
+            Write-Host "   ✅ Disconnect-FromMicrosoftGraph function available" -ForegroundColor Green
+        } else {
+            Write-Host "   ⚠️ Disconnect-FromMicrosoftGraph function not found" -ForegroundColor Yellow
+        }
+    }
+    else {
+        Write-Host "   [WARNING] M365.Authentication module not found at .\Modules\M365.Authentication\" -ForegroundColor Yellow
+        Write-Host "   Switch Tenant functionality will be limited" -ForegroundColor Yellow
+        $Global:AuthModuleAvailable = $false
+    }
+}
+catch {
+    Write-Warning "[WARNING] Failed to load M365.Authentication: $($_.Exception.Message)"
+    Write-Host "   Switch Tenant functionality will be limited" -ForegroundColor Yellow
+    $Global:AuthModuleAvailable = $false
+}
+
+Write-Host ""
+
+# ================================
 # ENHANCED TENANT DISCOVERY FUNCTIONS
 # ================================
 
@@ -206,6 +246,17 @@ function Get-TenantData {
     
     try {
         Update-StatusLabel "Discovering tenant data..."
+        
+        # Clear any existing tenant data first (important for tenant switching)
+        Write-Host "   Clearing previous tenant data..." -ForegroundColor Yellow
+        $Global:AcceptedDomains = @()
+        $Global:AvailableUsers = @()
+        $Global:AvailableGroups = @()
+        $Global:AvailableLicenses = @()
+        $Global:SharePointSites = @()
+        $Global:SharedMailboxes = @()
+        $Global:DistributionLists = @()
+        $Global:TenantInfo = $null
         
         # Get tenant information
         Write-Host "   Getting tenant information..." -ForegroundColor Yellow
@@ -241,11 +292,13 @@ function Get-TenantData {
                 $Global:DistributionLists = $ExchangeData.DistributionLists  
                 $Global:MailEnabledSecurityGroups = $ExchangeData.MailEnabledSecurityGroups
                 
-                # Merge accepted domains (avoid duplicates)
-                $ExistingDomains = $Global:AcceptedDomains | Select-Object -ExpandProperty Id
-                $NewDomains = $ExchangeData.AcceptedDomains | Where-Object { $_.DomainName -notin $ExistingDomains }
-                if ($NewDomains) {
-                    $Global:AcceptedDomains += $NewDomains | Select-Object @{Name='Id';Expression={$_.DomainName}}, @{Name='IsDefault';Expression={$_.Default}}
+                # Add Exchange accepted domains to complement Graph domains
+                if ($ExchangeData.AcceptedDomains) {
+                    $ExchangeDomains = $ExchangeData.AcceptedDomains | Select-Object @{Name='Id';Expression={$_.DomainName}}, @{Name='IsDefault';Expression={$_.Default}}
+                    # Combine with Graph domains but ensure uniqueness
+                    $AllDomains = @($Global:AcceptedDomains) + @($ExchangeDomains) | Group-Object Id | ForEach-Object { $_.Group[0] }
+                    $Global:AcceptedDomains = $AllDomains | Sort-Object Id
+                    Write-Host "     Combined Graph and Exchange domains: $($Global:AcceptedDomains.Count) total" -ForegroundColor DarkGray
                 }
                 
                 # Set mailboxes from Exchange data
@@ -357,8 +410,10 @@ function Update-Dropdowns {
     #>
     
     # Update domain dropdown
+    Write-Host "   Updating domain dropdown (found $($Global:AcceptedDomains.Count) domains)..." -ForegroundColor Gray
     $Script:DomainDropdown.Items.Clear()
     foreach ($Domain in $Global:AcceptedDomains) {
+        Write-Host "     Adding domain: $($Domain.Id)" -ForegroundColor DarkGray
         $Script:DomainDropdown.Items.Add($Domain.Id) | Out-Null
     }
     if ($Script:DomainDropdown.Items.Count -gt 0) {
@@ -387,9 +442,10 @@ function Update-Dropdowns {
     # $Script:OfficeDropdown is now $Script:OfficeTextBox
     
     # ENHANCED: Update groups checklist with improved categorization and distribution lists
+    Write-Host "   Updating groups list (found $($Global:AvailableGroups.Count) groups, $($Global:SharedMailboxes.Count) shared mailboxes, $($Global:DistributionLists.Count) distribution lists)..." -ForegroundColor Gray
     $Script:GroupsCheckedListBox.Items.Clear()
     
-    Write-Host "Updating groups list with enhanced categorization..." -ForegroundColor Cyan
+    Write-Host "   Processing groups with enhanced categorization..." -ForegroundColor Cyan
     
     # Add regular security groups
     $SecurityGroups = $Global:AvailableGroups | Where-Object { 
@@ -965,8 +1021,21 @@ function Clear-UserForm {
     }
     
     # Uncheck all groups
-    for ($i = 0; $i -lt $Script:GroupsCheckedListBox.Items.Count; $i++) {
-        $Script:GroupsCheckedListBox.SetItemChecked($i, $false)
+    if ($Script:GroupsCheckedListBox -and $Script:GroupsCheckedListBox.Items.Count -gt 0) {
+        for ($i = 0; $i -lt $Script:GroupsCheckedListBox.Items.Count; $i++) {
+            $Script:GroupsCheckedListBox.SetItemChecked($i, $false)
+        }
+    }
+    
+    # Clear any username availability status
+    if ($Script:UsernameAvailabilityLabel) {
+        $Script:UsernameAvailabilityLabel.Text = ""
+        $Script:UsernameAvailabilityLabel.ForeColor = [System.Drawing.Color]::Black
+    }
+    
+    # Reset password generation checkbox if it exists
+    if ($Script:GeneratePasswordCheckBox) {
+        $Script:GeneratePasswordCheckBox.Checked = $true
     }
 }
 
@@ -980,6 +1049,93 @@ function Generate-SecurePassword {
     $Characters = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789!@#$%^&*"
     $Password = -join ((1..$Length) | ForEach-Object { $Characters[(Get-Random -Maximum $Characters.Length)] })
     return $Password
+}
+
+function Clear-TenantData {
+    <#
+    .SYNOPSIS
+        Clears all tenant-specific data for tenant switching
+    #>
+    
+    try {
+        Write-Host "🧹 Clearing tenant data for fresh connection..." -ForegroundColor Cyan
+        
+        # Clear global tenant variables (all tenant-specific data)
+        $Global:AcceptedDomains = @()
+        $Global:AvailableUsers = @()
+        $Global:AvailableGroups = @()
+        $Global:AvailableLicenses = @()
+        $Global:SharePointSites = @()
+        $Global:SharedMailboxes = @()
+        $Global:DistributionLists = @()
+        $Global:TenantInfo = $null
+        
+        # Clear Exchange module cache if available
+        if (Get-Command "Clear-ExchangeDataCache" -ErrorAction SilentlyContinue) {
+            Clear-ExchangeDataCache
+        }
+        
+        # Reset license types to default (shouldn't contain tenant-specific data but reset anyway)
+        $Global:LicenseTypes = @{
+            "BusinessBasic" = "BusinessBasic"
+            "BusinessPremium" = "BusinessPremium"
+            "BusinessStandard" = "BusinessStandard"
+            "E3" = "E3"
+            "E5" = "E5"
+            "ExchangeOnline1" = "ExchangeOnline1"
+            "ExchangeOnline2" = "ExchangeOnline2"
+        }
+        
+        # Clear all dropdowns and lists
+        Write-Host "   Clearing dropdowns and lists..." -ForegroundColor Gray
+        if ($Script:DomainDropdown) { $Script:DomainDropdown.Items.Clear() }
+        if ($Script:ManagerDropdown) { 
+            $Script:ManagerDropdown.Items.Clear()
+            $Script:ManagerDropdown.Items.Add("(No Manager)")
+            $Script:ManagerDropdown.SelectedIndex = 0
+        }
+        if ($Script:LicenseDropdown) { $Script:LicenseDropdown.Items.Clear() }
+        if ($Script:GroupsCheckedListBox) { $Script:GroupsCheckedListBox.Items.Clear() }
+        
+        # Clear tenant data display areas
+        Write-Host "   Clearing tenant data displays..." -ForegroundColor Gray
+        if ($Script:TenantDataTextBox) { 
+            $Script:TenantDataTextBox.Text = "Connect to Microsoft 365 to view tenant data discovery information..." 
+        }
+        if ($Script:PreviewDataGrid) {
+            $Script:PreviewDataGrid.DataSource = $null
+            $Script:PreviewDataGrid.Rows.Clear()
+            $Script:PreviewDataGrid.Columns.Clear()
+        }
+        
+        # Clear activity log list if it exists
+        if ($Script:ActivityLogListBox) {
+            $Script:ActivityLogListBox.Items.Clear()
+        }
+        
+        # Clear any bulk import preview data
+        if ($Script:ImportButton) {
+            $Script:ImportButton.Enabled = $false
+        }
+        if ($Script:PreviewLabel) {
+            $Script:PreviewLabel.Text = "No file selected"
+        }
+        
+        # Clear form input fields
+        Write-Host "   Clearing form fields..." -ForegroundColor Gray
+        Clear-Form
+        
+        # Reset status bar
+        Write-Host "   Resetting status bar..." -ForegroundColor Gray
+        if (Get-Command "Update-StatusLabel" -ErrorAction SilentlyContinue) {
+            Update-StatusLabel "Ready - Click Connect to begin tenant discovery"
+        }
+        
+        Write-Host "✅ Tenant data cleared successfully" -ForegroundColor Green
+    }
+    catch {
+        Write-Host "⚠️ Warning during tenant data clearing: $($_.Exception.Message)" -ForegroundColor Yellow
+    }
 }
 
 # ================================
@@ -1241,6 +1397,11 @@ function Connect-ToMicrosoftGraph {
             $Script:ConnectButton.Text = "Connected - Discover Tenant Data"
             $Script:ConnectButton.BackColor = [System.Drawing.Color]::LightGreen
             $Script:CreateUserButton.Enabled = $true
+            
+            # Enable Switch Tenant button after successful connection
+            if ($Script:SwitchTenantButton) {
+                $Script:SwitchTenantButton.Enabled = $true
+            }
             
             Add-ActivityLog "Connection" "Success" "Connected to Microsoft Graph as $($Context.Account)"
             
@@ -1557,7 +1718,120 @@ function New-UserCreationTab {
         }
     })
     
-    $ConnectionPanel.Controls.Add($Script:ConnectButton)
+    # Switch Tenant Button - Added for multi-tenant support
+    $Script:SwitchTenantButton = New-Object System.Windows.Forms.Button
+    $Script:SwitchTenantButton.Text = "🔄 Switch Tenant"
+    $Script:SwitchTenantButton.Size = New-Object System.Drawing.Size(160, 35)
+    $Script:SwitchTenantButton.Location = New-Object System.Drawing.Point(270, 12)  # Right next to Connect button
+    $Script:SwitchTenantButton.Font = New-Object System.Drawing.Font("Segoe UI", 9, [System.Drawing.FontStyle]::Bold)
+    $Script:SwitchTenantButton.Enabled = $false  # Initially disabled
+    $Script:SwitchTenantButton.BackColor = [System.Drawing.Color]::Orange
+    $Script:SwitchTenantButton.ForeColor = [System.Drawing.Color]::White
+    
+    # Add tooltip
+    $switchTenantTooltip = New-Object System.Windows.Forms.ToolTip
+    $switchTenantTooltip.SetToolTip($Script:SwitchTenantButton, "Disconnect from current tenant and connect to a different Microsoft 365 tenant")
+    
+    $Script:SwitchTenantButton.Add_Click({
+        try {
+            # Show confirmation dialog
+            $result = [System.Windows.Forms.MessageBox]::Show(
+                "This will disconnect from the current Microsoft 365 tenant and clear all cached authentication data.`n`n🔄 After disconnection, you will need to sign in with DIFFERENT credentials to access a different tenant.`n`n💡 TIP: If the browser still auto-signs you into the same account, try using an incognito/private window when the authentication prompt appears.`n`nContinue with disconnect?",
+                "Switch to Different Tenant",
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Question
+            )
+            
+            if ($result -eq [System.Windows.Forms.DialogResult]::Yes) {
+                # IMMEDIATELY clear tenant data before authentication disconnect
+                Write-Host "🧹 Pre-clearing tenant data..." -ForegroundColor Yellow
+                $Global:AcceptedDomains = @()
+                $Global:AvailableUsers = @()
+                $Global:AvailableGroups = @()
+                $Global:SharedMailboxes = @()
+                $Global:DistributionLists = @()
+                $Global:TenantInfo = $null
+                
+                # Clear Exchange module cache if available
+                if (Get-Command "Clear-ExchangeDataCache" -ErrorAction SilentlyContinue) {
+                    Clear-ExchangeDataCache
+                } else {
+                    Write-Host "⚠️ Exchange cache clear function not available" -ForegroundColor Yellow
+                }
+                
+                Write-Host "✅ Pre-clearing completed" -ForegroundColor Green
+                
+                # Call disconnection function
+                if (Get-Command "Disconnect-FromMicrosoftGraph" -ErrorAction SilentlyContinue) {
+                    Write-Host "🔄 Disconnecting from current tenant..." -ForegroundColor Yellow
+                    $disconnectResult = Disconnect-FromMicrosoftGraph
+                    
+                    if ($disconnectResult.Success) {
+                        Write-Host "✅ Successfully disconnected from tenant" -ForegroundColor Green
+                        
+                        # Reset UI state
+                        $Script:ConnectButton.Text = "Connect to Microsoft 365"
+                        $Script:ConnectButton.BackColor = [System.Drawing.SystemColors]::Control
+                        $Script:ConnectButton.Enabled = $true
+                        $Script:SwitchTenantButton.Enabled = $false
+                        $Global:IsConnected = $false
+                        
+                        # Clear tenant data
+                        Write-Host "🧹 Calling Clear-TenantData function..." -ForegroundColor Yellow
+                        Clear-TenantData
+                        
+                        # Verify clearing worked
+                        Write-Host "🔍 Verifying data clearing:" -ForegroundColor Cyan
+                        Write-Host "   AcceptedDomains: $($Global:AcceptedDomains.Count)" -ForegroundColor Gray
+                        Write-Host "   AvailableUsers: $($Global:AvailableUsers.Count)" -ForegroundColor Gray
+                        Write-Host "   AvailableGroups: $($Global:AvailableGroups.Count)" -ForegroundColor Gray
+                        Write-Host "   SharedMailboxes: $($Global:SharedMailboxes.Count)" -ForegroundColor Gray
+                        Write-Host "   DistributionLists: $($Global:DistributionLists.Count)" -ForegroundColor Gray
+                        
+                        [System.Windows.Forms.MessageBox]::Show(
+                            "Successfully disconnected from the previous tenant and cleared authentication cache.`n`n📌 IMPORTANT: When you click 'Connect to Microsoft 365', you will be prompted to sign in again.`n`n✅ Use DIFFERENT credentials (email/password) to connect to a different tenant.`n✅ The browser authentication window should ask you to choose an account or sign in fresh.`n`nClick 'Connect to Microsoft 365' when ready.",
+                            "Ready for New Tenant - Authentication Required",
+                            [System.Windows.Forms.MessageBoxButtons]::OK,
+                            [System.Windows.Forms.MessageBoxIcon]::Information
+                        )
+                    }
+                    else {
+                        [System.Windows.Forms.MessageBox]::Show(
+                            "Disconnection encountered some issues but should be ready for new connection.`n`nTry connecting to the new tenant.",
+                            "Disconnection Warning",
+                            [System.Windows.Forms.MessageBoxButtons]::OK,
+                            [System.Windows.Forms.MessageBoxIcon]::Warning
+                        )
+                    }
+                }
+                else {
+                    $ErrorDetails = if ($Global:AuthModuleAvailable -eq $false) {
+                        "M365.Authentication module failed to load during startup."
+                    } else {
+                        "Disconnect-FromMicrosoftGraph function not found in M365.Authentication module."
+                    }
+                    
+                    [System.Windows.Forms.MessageBox]::Show(
+                        "Switch Tenant function not available.`n`nReason: $ErrorDetails`n`nPlease restart the application to switch tenants, or check that the M365.Authentication module is properly installed.",
+                        "Switch Tenant Not Available",
+                        [System.Windows.Forms.MessageBoxButtons]::OK,
+                        [System.Windows.Forms.MessageBoxIcon]::Warning
+                    )
+                }
+            }
+        }
+        catch {
+            Write-Host "❌ Error during tenant switch: $($_.Exception.Message)" -ForegroundColor Red
+            [System.Windows.Forms.MessageBox]::Show(
+                "Error during tenant switch: $($_.Exception.Message)",
+                "Switch Tenant Error",
+                [System.Windows.Forms.MessageBoxButtons]::OK,
+                [System.Windows.Forms.MessageBoxIcon]::Error
+            )
+        }
+    })
+    
+    $ConnectionPanel.Controls.AddRange(@($Script:ConnectButton, $Script:SwitchTenantButton))
     
     # Main Content Panel
     $ContentPanel = New-Object System.Windows.Forms.Panel
@@ -2166,28 +2440,70 @@ function Register-FormEvents {
             }
         }
         
-        # Disconnect from Graph if connected
+        # Comprehensive disconnect from all M365 modules
         if ($Global:IsConnected) {
             try {
-                Write-Host "Disconnecting from Microsoft Graph..." -ForegroundColor Yellow
-                Disconnect-MgGraph -ErrorAction SilentlyContinue
-                Write-Host "[OK] Disconnected successfully" -ForegroundColor Green
+                Write-Host "🔄 Application closing - Performing comprehensive disconnect from M365 services..." -ForegroundColor Yellow
+                
+                # Use our enhanced disconnect function if available
+                if (Get-Command "Disconnect-FromMicrosoftGraph" -ErrorAction SilentlyContinue) {
+                    Write-Host "   Using enhanced disconnect function..." -ForegroundColor Cyan
+                    $disconnectResult = Disconnect-FromMicrosoftGraph
+                    
+                    if ($disconnectResult.Success) {
+                        Write-Host "   ✅ Enhanced disconnect completed successfully" -ForegroundColor Green
+                    } else {
+                        Write-Host "   ⚠️ Enhanced disconnect completed with warnings: $($disconnectResult.Message)" -ForegroundColor Yellow
+                    }
+                } else {
+                    # Fallback to basic disconnect
+                    Write-Host "   Using basic disconnect..." -ForegroundColor Cyan
+                    Disconnect-MgGraph -ErrorAction SilentlyContinue
+                    
+                    # Try to disconnect Exchange Online as well
+                    if (Get-Command "Disconnect-ExchangeOnline" -ErrorAction SilentlyContinue) {
+                        Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+                    }
+                    
+                    Write-Host "   ✅ Basic disconnect completed" -ForegroundColor Green
+                }
+                
+                $Global:IsConnected = $false
+                Write-Host "✅ All M365 services disconnected successfully" -ForegroundColor Green
             }
             catch {
-                Write-Warning "Error during disconnect: $($_.Exception.Message)"
+                Write-Warning "Error during comprehensive disconnect: $($_.Exception.Message)"
+                Write-Host "⚠️ Disconnect completed with errors - application will still close" -ForegroundColor Yellow
             }
         }
         
         # Save final activity log
         try {
             Add-ActivityLog "Application" "Shutdown" "Application closed successfully"
-            $FinalLogPath = "M365_Final_Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+            
+            # Ensure Logs directory exists
+            $LogsDir = Join-Path $PSScriptRoot "Logs"
+            Write-Host "DEBUG: PSScriptRoot = $PSScriptRoot" -ForegroundColor Yellow
+            Write-Host "DEBUG: LogsDir = $LogsDir" -ForegroundColor Yellow
+            
+            if (-not (Test-Path $LogsDir)) {
+                Write-Host "DEBUG: Creating Logs directory: $LogsDir" -ForegroundColor Yellow
+                New-Item -Path $LogsDir -ItemType Directory -Force | Out-Null
+            }
+            
+            # Create log file in Logs directory
+            $FinalLogPath = Join-Path $LogsDir "M365_Final_Log_$(Get-Date -Format 'yyyyMMdd_HHmmss').txt"
+            Write-Host "DEBUG: Final log will be saved to: $FinalLogPath" -ForegroundColor Yellow
+            
             $Global:ActivityLog | ForEach-Object {
                 "$($_.Timestamp.ToString('yyyy-MM-dd HH:mm:ss')) [$($_.Status)] $($_.Action) - $($_.Details)"
             } | Set-Content -Path $FinalLogPath -Encoding UTF8 -ErrorAction SilentlyContinue
+            
+            Write-Host "Final log saved to: $FinalLogPath" -ForegroundColor Green
         }
         catch {
             # Silent fail on log save
+            Write-Verbose "Failed to save final log: $($_.Exception.Message)"
         }
         
         Write-Host ""
@@ -2332,6 +2648,30 @@ function Start-M365ProvisioningTool {
             [System.Windows.Forms.MessageBoxButtons]::OK,
             [System.Windows.Forms.MessageBoxIcon]::Error
         )
+    }
+    finally {
+        # Ensure cleanup happens even if application crashes
+        if ($Global:IsConnected) {
+            try {
+                Write-Host "🧹 Final cleanup: Disconnecting from M365 services..." -ForegroundColor Yellow
+                
+                # Use enhanced disconnect if available
+                if (Get-Command "Disconnect-FromMicrosoftGraph" -ErrorAction SilentlyContinue) {
+                    $null = Disconnect-FromMicrosoftGraph
+                } else {
+                    # Fallback cleanup
+                    Disconnect-MgGraph -ErrorAction SilentlyContinue
+                    if (Get-Command "Disconnect-ExchangeOnline" -ErrorAction SilentlyContinue) {
+                        Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+                    }
+                }
+                
+                Write-Host "✅ Final cleanup completed" -ForegroundColor Green
+            }
+            catch {
+                Write-Host "⚠️ Warning during final cleanup: $($_.Exception.Message)" -ForegroundColor Yellow
+            }
+        }
     }
 }
 
