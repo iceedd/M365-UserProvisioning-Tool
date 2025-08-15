@@ -28,12 +28,14 @@ A comprehensive PowerShell-based application designed to simplify Microsoft 365 
 
 ### 🔧 **Key Features**
 - **No M365 Portal Navigation** - Everything from one interface
-- **Multi-Tenant Support** - Switch between different M365 tenants without restarting
+- **🔄 Multi-Tenant Support** - Switch between different M365 tenants without restarting
+- **🏢 Perfect for MSPs** - Manage multiple client tenants seamlessly
 - **Intelligent Tenant Discovery** - Automatically finds available licenses, groups, and domains
 - **License Assignment** - Assigns appropriate M365 licenses during user creation
 - **Group Membership** - Add users to security and distribution groups
 - **Exchange Integration** - Mailbox setup and distribution list management
 - **Activity Logging** - Track all user creation activities for audit purposes
+- **🧹 Clean Tenant Switching** - Complete data isolation between tenants
 
 ### 💼 **Business Benefits**
 - **Reduces Training Time** - Simple GUI instead of complex admin portals
@@ -57,12 +59,39 @@ A comprehensive PowerShell-based application designed to simplify Microsoft 365 
 3. **Install PowerShell 7**: `winget install Microsoft.PowerShell`
 4. **Double-click** `Start-Tool.bat`
 5. **Connect** to Microsoft 365 and start creating users!
+6. **🔄 Switch Tenants** - Use the orange Switch Tenant button for multi-tenant management
 
 ### What You Get
 - **Automated setup** - All required modules install automatically
 - **User-friendly interface** - No PowerShell knowledge required
 - **Step-by-step guidance** - Clear instructions and error messages
 - **Professional appearance** - Looks and feels like enterprise software
+
+## 🔄 Multi-Tenant Management
+
+### Perfect for Managed Service Providers (MSPs) and Multi-Tenant Environments
+
+The **Switch Tenant** functionality allows seamless switching between different Microsoft 365 tenants without restarting the application:
+
+#### How It Works:
+1. **Connect to first tenant** - Authenticate and work with users as normal
+2. **Click "🔄 Switch Tenant"** - Orange button next to Connect button  
+3. **Confirm disconnection** - Clears all cached authentication and tenant data
+4. **Connect to new tenant** - Authenticate with different credentials
+5. **Work with new tenant** - All data refreshed for the new organization
+
+#### Key Benefits:
+- ✅ **No application restart** required
+- ✅ **Complete data isolation** between tenants
+- ✅ **Aggressive cache clearing** prevents data bleeding
+- ✅ **MSP-friendly** - Perfect for consultants managing multiple clients
+- ✅ **Help desk efficiency** - Switch between client environments instantly
+
+#### Security Features:
+- **Complete authentication clearing** - Both Microsoft Graph and Exchange Online
+- **Cached data removal** - Clears all tenant-specific information
+- **Fresh authentication** - Forces new login for each tenant
+- **Audit trail separation** - Activity logs clearly show tenant switches
 
 ## Repository Structure
 
@@ -73,12 +102,14 @@ M365-UserProvisioning-Tool/
 ├── Start-Tool.bat                          # One-click launcher
 ├── USER-GUIDE.md                          # Complete documentation
 ├── Modules/                                # PowerShell modules
-│   ├── M365.Authentication/               # M365 connection handling
+│   ├── M365.Authentication/               # M365 connection & tenant switching
 │   ├── M365.GUI/                         # User interface
 │   ├── M365.UserManagement/              # User creation logic
 │   └── M365.ExchangeOnline/              # Exchange operations
 ├── Templates/                             # CSV templates for bulk import
-└── Tests/                                # Unit tests
+├── Tests/                                 # Testing scripts and validation tools
+├── Logs/                                  # Application logs and activity history
+└── .claude/                              # Claude Code configuration and prompts
 ```
 
 ## Why Choose This Tool?
