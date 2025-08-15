@@ -271,10 +271,15 @@ function Get-TenantData {
         $Global:AvailableUsers = Get-MgUser -All -Property "DisplayName,UserPrincipalName,JobTitle,Department" | 
             Sort-Object DisplayName
         
-        # Get all groups
+        # Get all groups - INCLUDE ID PROPERTY!
         Write-Host "   Getting security groups..." -ForegroundColor Yellow
-        $Global:AvailableGroups = Get-MgGroup -All -Property "DisplayName,GroupTypes,SecurityEnabled,MailEnabled" |
+        $Global:AvailableGroups = Get-MgGroup -All -Property "Id,DisplayName,GroupTypes,SecurityEnabled,MailEnabled" |
             Sort-Object DisplayName
+            
+        # Show group discovery summary
+        $SecurityCount = ($Global:AvailableGroups | Where-Object { $_.SecurityEnabled -eq $true -and $_.GroupTypes -notcontains "Unified" }).Count
+        $M365Count = ($Global:AvailableGroups | Where-Object { $_.GroupTypes -contains "Unified" }).Count
+        Write-Host "   [OK] Loaded $($Global:AvailableGroups.Count) groups: $SecurityCount Security + $M365Count M365" -ForegroundColor Green
         
         # ENHANCED EXCHANGE ONLINE DATA DISCOVERY
         Write-Host "   Getting Exchange Online data..." -ForegroundColor Yellow
@@ -565,18 +570,37 @@ function New-M365User {
     )
     
     try {
-        $UserPrincipalName = "$Username@$Domain"
+        # Sanitize username for UserPrincipalName (remove spaces, special characters)
+        $SanitizedUsername = $Username -replace '[^a-zA-Z0-9._-]', ''
+        if ([string]::IsNullOrWhiteSpace($SanitizedUsername)) {
+            # Fallback: use firstname.lastname if username is all special characters
+            $SanitizedUsername = "$($FirstName.ToLower()).$($LastName.ToLower())" -replace '[^a-zA-Z0-9._-]', ''
+        }
+        
+        $UserPrincipalName = "$SanitizedUsername@$Domain"
         $DisplayName = "$FirstName $LastName"
+        
+        # Notify user if username was sanitized
+        if ($SanitizedUsername -ne $Username) {
+            Write-Host "   [INFO] Username sanitized: '$Username' → '$SanitizedUsername'" -ForegroundColor Cyan
+        }
         
         Update-StatusLabel "Creating user: $UserPrincipalName"
         
         # Create user parameters - FLEXIBLE ATTRIBUTE HANDLING RESTORED
+        # Sanitize mailNickname (remove spaces, special characters, and numbers)
+        $SanitizedMailNickname = $SanitizedUsername -replace '[^a-zA-Z]', ''
+        if ([string]::IsNullOrWhiteSpace($SanitizedMailNickname)) {
+            # Fallback: use first name if username is all special characters
+            $SanitizedMailNickname = $FirstName -replace '[^a-zA-Z]', ''
+        }
+        
         $UserParams = @{
             UserPrincipalName = $UserPrincipalName
             DisplayName = $DisplayName
             GivenName = $FirstName
             Surname = $LastName
-            MailNickname = $Username
+            MailNickname = $SanitizedMailNickname.ToLower()
             AccountEnabled = $true
             UsageLocation = "GB"
             PasswordProfile = @{
@@ -609,18 +633,34 @@ function New-M365User {
         
         # Create the user
         Write-Host "   Creating user account..." -ForegroundColor Yellow
-        $NewUser = New-MgUser @UserParams
+        try {
+            $NewUser = New-MgUser @UserParams
+            
+            if ($NewUser -and $NewUser.Id) {
+                Write-Host "   [OK] User created: $($NewUser.UserPrincipalName)" -ForegroundColor Green
+            } else {
+                throw "User creation returned null or invalid object"
+            }
+        } catch {
+            Write-Host "   [ERROR] User creation failed: $($_.Exception.Message)" -ForegroundColor Red
+            Add-ActivityLog "ERROR" "User creation failed for $UserPrincipalName : $($_.Exception.Message)"
+            return $null
+        }
         
-        Write-Host "   [OK] User created: $($NewUser.UserPrincipalName)" -ForegroundColor Green
-        
-        # Set manager if specified
-        if ($Manager -and $Manager -ne "(No Manager)") {
+        # Set manager if specified (only if user creation succeeded)
+        if ($NewUser -and $NewUser.Id -and $Manager -and $Manager -ne "(No Manager)") {
             try {
                 $ManagerUPN = ($Manager -split '\(')[1] -replace '\)', ''
-                $ManagerUser = Get-MgUser -Filter "userPrincipalName eq '$ManagerUPN'"
-                if ($ManagerUser) {
-                    Set-MgUserManagerByRef -UserId $NewUser.Id -BodyParameter @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($ManagerUser.Id)" }
-                    Write-Host "   Manager set: $($Manager)" -ForegroundColor Green
+                if ($ManagerUPN) {
+                    $ManagerUser = Get-MgUser -Filter "userPrincipalName eq '$ManagerUPN'"
+                    if ($ManagerUser) {
+                        Set-MgUserManagerByRef -UserId $NewUser.Id -BodyParameter @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($ManagerUser.Id)" }
+                        Write-Host "   Manager set: $($Manager)" -ForegroundColor Green
+                    } else {
+                        Write-Warning "Manager not found: $ManagerUPN"
+                    }
+                } else {
+                    Write-Warning "Could not extract manager UPN from: $Manager"
                 }
             }
             catch {
@@ -629,7 +669,7 @@ function New-M365User {
         }
         
         # FIXED: RESTORED LEGACY GROUP PROCESSING - MANUAL SELECTION ONLY (NO HARDCODED ASSUMPTIONS)
-        if ($Groups -and $Groups.Count -gt 0) {
+        if ($NewUser -and $NewUser.Id -and $Groups -and $Groups.Count -gt 0) {
             Write-Host "   Processing manually selected groups..." -ForegroundColor Yellow
             Write-Host "   Selected groups: $($Groups.Count)" -ForegroundColor Gray
             
@@ -662,9 +702,23 @@ function New-M365User {
                         # This is a mail-enabled security group
                         Write-Host "   Identified as Mail-Enabled Security Group: $CleanGroupName" -ForegroundColor Cyan
                         
-                        # Try Graph first
+                        # Try Graph first with improved matching
+                        $Group = $null
+                        
+                        # Method 1: Exact DisplayName match (case-sensitive)
                         $Group = $Global:AvailableGroups | Where-Object { $_.DisplayName -eq $CleanGroupName }
-                        if ($Group) {
+                        
+                        # Method 2: Case-insensitive DisplayName match
+                        if (-not $Group) {
+                            $Group = $Global:AvailableGroups | Where-Object { $_.DisplayName -ieq $CleanGroupName }
+                        }
+                        
+                        # Method 3: Contains match (partial)
+                        if (-not $Group) {
+                            $Group = $Global:AvailableGroups | Where-Object { $_.DisplayName -like "*$CleanGroupName*" }
+                        }
+                        
+                        if ($Group -and $Group.Id) {
                             try {
                                 $GroupMember = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($NewUser.Id)" }
                                 New-MgGroupMember -GroupId $Group.Id -BodyParameter $GroupMember
@@ -676,6 +730,7 @@ function New-M365User {
                             }
                         }
                         else {
+                            Write-Host "      [INFO] Group not found in Graph, trying Exchange method..." -ForegroundColor Cyan
                             Add-UserToDistributionListManual -NewUser $NewUser -ListName $CleanGroupName
                         }
                     }
@@ -683,11 +738,40 @@ function New-M365User {
                         # Regular security group or M365 group - handle via Graph
                         Write-Host "   Identified as Security/M365 Group: $CleanGroupName" -ForegroundColor Cyan
                         
+                        # Try multiple group matching methods
+                        $Group = $null
+                        
+                        # Method 1: Exact DisplayName match (case-sensitive)
                         $Group = $Global:AvailableGroups | Where-Object { $_.DisplayName -eq $CleanGroupName }
-                        if ($Group) {
-                            $GroupMember = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($NewUser.Id)" }
-                            New-MgGroupMember -GroupId $Group.Id -BodyParameter $GroupMember
-                            Write-Host "      [OK] Added to group: $CleanGroupName" -ForegroundColor Green
+                        
+                        # Method 2: Case-insensitive DisplayName match
+                        if (-not $Group) {
+                            $Group = $Global:AvailableGroups | Where-Object { $_.DisplayName -ieq $CleanGroupName }
+                        }
+                        
+                        # Method 3: Contains match (partial)
+                        if (-not $Group) {
+                            $Group = $Global:AvailableGroups | Where-Object { $_.DisplayName -like "*$CleanGroupName*" }
+                        }
+                        
+                        # Show similar groups if exact match fails (for troubleshooting)
+                        if (-not $Group) {
+                            $FirstWord = $CleanGroupName.Split(' ')[0]
+                            $SimilarGroups = $Global:AvailableGroups | Where-Object { $_.DisplayName -like "*$FirstWord*" } | Select-Object -First 2
+                            if ($SimilarGroups) {
+                                Write-Host "      💡 Similar groups found: $($SimilarGroups.DisplayName -join ', ')" -ForegroundColor Yellow
+                            }
+                        }
+                        
+                        if ($Group -and $Group.Id) {
+                            try {
+                                $GroupMember = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($NewUser.Id)" }
+                                New-MgGroupMember -GroupId $Group.Id -BodyParameter $GroupMember
+                                Write-Host "      [OK] Added to group: $CleanGroupName" -ForegroundColor Green
+                            }
+                            catch {
+                                Write-Host "      [ERROR] Failed to add to group $CleanGroupName : $($_.Exception.Message)" -ForegroundColor Red
+                            }
                         }
                         else {
                             Write-Host "      [WARNING] Group not found in tenant: $CleanGroupName" -ForegroundColor Yellow
@@ -780,6 +864,39 @@ function Get-CleanGroupName {
     return $CleanName
 }
 
+function Wait-ForUserLicenseAssignment {
+    <#
+    .SYNOPSIS
+        Waits for user to get a license assigned (for dynamic group scenarios)
+    #>
+    param(
+        [object]$NewUser,
+        [int]$MaxWaitMinutes = 3
+    )
+    
+    Write-Host "      Waiting for license assignment (dynamic groups)..." -ForegroundColor Yellow
+    $MaxAttempts = $MaxWaitMinutes * 4  # Check every 15 seconds
+    $Attempts = 0
+    
+    do {
+        $Attempts++
+        $UserWithLicense = Get-MgUser -UserId $NewUser.Id -Property AssignedLicenses -ErrorAction SilentlyContinue
+        
+        if ($UserWithLicense -and $UserWithLicense.AssignedLicenses.Count -gt 0) {
+            Write-Host "      ✅ License assigned! Proceeding with Exchange operations..." -ForegroundColor Green
+            return $true
+        }
+        
+        if ($Attempts -lt $MaxAttempts) {
+            Write-Host "      ⏱️  No license yet, waiting 15 seconds... (attempt $Attempts/$MaxAttempts)" -ForegroundColor Yellow
+            Start-Sleep -Seconds 15
+        }
+    } while ($Attempts -lt $MaxAttempts)
+    
+    Write-Host "      ⚠️  License not assigned after $MaxWaitMinutes minutes. Proceeding anyway..." -ForegroundColor Yellow
+    return $false
+}
+
 function Add-UserToDistributionListManual {
     <#
     .SYNOPSIS
@@ -804,9 +921,12 @@ function Add-UserToDistributionListManual {
         }
         
         if ($ExchangeConnected) {
-            # ADD PROPAGATION DELAY - Wait for user to propagate to Exchange
-            Write-Host "      Waiting 10 seconds for user propagation..." -ForegroundColor Yellow
-            Start-Sleep -Seconds 10
+            # Wait for license assignment first
+            Wait-ForUserLicenseAssignment -NewUser $NewUser -MaxWaitMinutes 2
+            
+            # Additional wait for Exchange propagation
+            Write-Host "      Waiting additional 30 seconds for Exchange propagation..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 30
             
             # Verify the distribution list exists - try multiple methods
             Write-Host "      Searching for distribution list: '$ListName'" -ForegroundColor Gray
@@ -902,9 +1022,12 @@ function Add-UserToSharedMailboxManual {
         }
         
         if ($ExchangeConnected) {
-            # ADD PROPAGATION DELAY - Wait for user to propagate to Exchange
-            Write-Host "      Waiting 10 seconds for user propagation..." -ForegroundColor Yellow
-            Start-Sleep -Seconds 10
+            # Wait for license assignment first
+            Wait-ForUserLicenseAssignment -NewUser $NewUser -MaxWaitMinutes 2
+            
+            # Additional wait for Exchange propagation
+            Write-Host "      Waiting additional 30 seconds for Exchange propagation..." -ForegroundColor Yellow
+            Start-Sleep -Seconds 30
             
             # Verify the shared mailbox exists - try multiple methods
             Write-Host "      Searching for shared mailbox: '$MailboxName'" -ForegroundColor Gray
