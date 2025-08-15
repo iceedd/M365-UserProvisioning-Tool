@@ -41,3 +41,9 @@ Thumbs.db
 
 # Claude Code files
 .claude/
+
+# Portable packages (temporary distribution files)
+M365-Tool-Portable/
+M365-Tool-Portable.zip
+*-Portable/
+*-Portable.zip
