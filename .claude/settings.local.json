@@ -1,0 +1,41 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mkdir:*)",
+      "Bash(pwsh:*)",
+      "Bash(move \"M365_Final_Log_20250815_101816.txt\" \"Logs\"\")",
+      "Bash(move M365_Final_Log_20250815_101816.txt Logs)",
+      "Bash(mv:*)",
+      "Bash(grep:*)",
+      "Bash(sed:*)",
+      "Bash(Copy-Item:*)",
+      "Bash(powershell:*)",
+      "Bash(Remove-Item \"C:\\Users\\TomMortiboys\\Documents\\UserCreationTool\\M365-UserProvisioning-Tool\\Test-UsernameSanitization.ps1\" -Force)",
+      "Bash(dotnet run:*)",
+      "Bash(taskkill:*)",
+      "Bash(pkill:*)",
+      "Bash(dotnet build)",
+      "Bash(timeout:*)",
+      "Bash(dotnet add package:*)",
+      "Bash(ping:*)",
+      "Bash(curl:*)",
+      "Bash(dotnet dev-certs:*)",
+      "Bash(az:*)",
+      "Bash(dotnet publish:*)",
+      "Bash(copy:*)",
+      "Bash(Remove-Item \"C:\\Users\\TomMortiboys\\Documents\\UserCreationTool\\M365-UserProvisioning-Tool\\AZURE-SETUP-GUIDE.md\" -Force)",
+      "Bash(Remove-Item \"C:\\Users\\TomMortiboys\\Documents\\UserCreationTool\\M365-UserProvisioning-Tool\\DEPLOYMENT_GUIDE.md\" -Force)",
+      "Bash(Remove-Item \"C:\\Users\\TomMortiboys\\Documents\\UserCreationTool\\M365-UserProvisioning-Tool\\FREE-HOSTING-OPTIONS.md\" -Force)",
+      "Bash(Remove-Item \"C:\\Users\\TomMortiboys\\Documents\\UserCreationTool\\M365-UserProvisioning-Tool\\WEB-APP-ARCHITECTURE.md\" -Force)",
+      "Bash(Remove-Item \"AZURE-SETUP-GUIDE.md\" -Force)",
+      "Bash(Remove-Item \"DEPLOYMENT_GUIDE.md\" -Force)",
+      "Bash(Remove-Item \"FREE-HOSTING-OPTIONS.md\" -Force)",
+      "Bash(Remove-Item \"WEB-APP-ARCHITECTURE.md\" -Force)",
+      "Bash(del:*)",
+      "Bash(rm:*)"
+    ],
+    "deny": [],
+    "ask": [],
+    "defaultMode": "acceptEdits"
+  }
+}
