@@ -159,11 +159,130 @@ foreach ($Module in $RequiredModules) {
 
 Write-Host "[OK] Required modules processed" -ForegroundColor Green
 
+# Wait a moment for modules to fully initialize
+Start-Sleep -Milliseconds 1000
+
+# ================================
+# M365.AUTHENTICATION MODULE LOADING (For Switch Tenant functionality)
+# ================================
+
+Write-Host ""
+Write-Host "Loading M365.Authentication Module..." -ForegroundColor Cyan
+
+# Load custom M365.Authentication module for Switch Tenant functionality
+try {
+    if (Test-Path ".\Modules\M365.Authentication\M365.Authentication.psd1") {
+        Write-Host "   Loading M365.Authentication module..." -ForegroundColor Yellow
+        
+        # Ensure dependencies are available first
+        $RequiredCommands = @('Connect-MgGraph', 'Disconnect-MgGraph', 'Get-MgContext')
+        $MissingCommands = @()
+        foreach ($Command in $RequiredCommands) {
+            if (-not (Get-Command $Command -ErrorAction SilentlyContinue)) {
+                $MissingCommands += $Command
+            }
+        }
+        
+        if ($MissingCommands.Count -gt 0) {
+            throw "Missing required Graph commands: $($MissingCommands -join ', '). Please ensure Microsoft Graph modules are properly installed."
+        }
+        
+        Import-Module ".\Modules\M365.Authentication\M365.Authentication.psd1" -Force -ErrorAction Stop
+        Write-Host "   [OK] M365.Authentication module loaded successfully!" -ForegroundColor Green
+        Write-Host "   Switch Tenant functionality available!" -ForegroundColor Green
+        $Global:AuthModuleAvailable = $true
+        
+        # Test if key functions are available
+        $AuthFunctions = Get-Command -Module M365.Authentication -ErrorAction SilentlyContinue
+        Write-Host "   Available Authentication functions: $($AuthFunctions.Count)" -ForegroundColor Cyan
+        
+        # Specifically check for the disconnect function
+        if (Get-Command "Disconnect-FromMicrosoftGraph" -ErrorAction SilentlyContinue) {
+            Write-Host "   ✅ Disconnect-FromMicrosoftGraph function available" -ForegroundColor Green
+        } else {
+            Write-Host "   ⚠️ Disconnect-FromMicrosoftGraph function not found" -ForegroundColor Yellow
+            $Global:AuthModuleAvailable = $false
+        }
+    }
+    else {
+        Write-Host "   [WARNING] M365.Authentication module not found at .\Modules\M365.Authentication\" -ForegroundColor Yellow
+        Write-Host "   Switch Tenant functionality will be limited" -ForegroundColor Yellow
+        $Global:AuthModuleAvailable = $false
+    }
+}
+catch {
+    Write-Warning "[WARNING] Failed to load M365.Authentication: $($_.Exception.Message)"
+    Write-Host "   Switch Tenant functionality will be limited" -ForegroundColor Yellow
+    $Global:AuthModuleAvailable = $false
+}
+
+# Add fallback Switch Tenant function if module loading failed
+if (-not $Global:AuthModuleAvailable) {
+    Write-Host "   Creating fallback Switch Tenant function..." -ForegroundColor Yellow
+    
+    function Disconnect-FromMicrosoftGraph {
+        <#
+        .SYNOPSIS
+            Fallback disconnect function when M365.Authentication module is not available
+        #>
+        try {
+            Write-Host "🔄 Disconnecting from Microsoft Graph (fallback method)..." -ForegroundColor Yellow
+            
+            # Disconnect Graph
+            if ($Global:IsConnected) {
+                Disconnect-MgGraph -ErrorAction SilentlyContinue
+                $Global:IsConnected = $false
+            }
+            
+            # Disconnect Exchange Online
+            try {
+                $ExchangeConnection = Get-ConnectionInformation -ErrorAction SilentlyContinue
+                if ($ExchangeConnection) {
+                    Disconnect-ExchangeOnline -Confirm:$false -ErrorAction SilentlyContinue
+                }
+            }
+            catch { }
+            $Global:ExchangeOnlineConnected = $false
+            
+            # Clear tenant data
+            $Global:TenantInfo = $null
+            $Global:AcceptedDomains = @()
+            $Global:AvailableUsers = @()
+            $Global:AvailableGroups = @()
+            $Global:AvailableLicenses = @()
+            $Global:AvailableMailboxes = @()
+            $Global:DistributionLists = @()
+            $Global:MailEnabledSecurityGroups = @()
+            $Global:SharedMailboxes = @()
+            $Global:SharePointSites = @()
+            
+            return @{
+                Success = $true
+                Message = "Disconnected successfully (fallback method)"
+                Details = @{
+                    GraphDisconnected = $true
+                    ExchangeDisconnected = $true
+                    TenantDataCleared = $true
+                    ReadyForNewTenant = $true
+                }
+            }
+        }
+        catch {
+            return @{
+                Success = $false
+                Message = "Disconnection failed: $($_.Exception.Message)"
+            }
+        }
+    }
+    Write-Host "   [OK] Fallback Switch Tenant function created" -ForegroundColor Green
+}
+
+Write-Host ""
+
 # ================================
 # ENHANCED: M365.EXCHANGEONLINE MODULE LOADING
 # ================================
 
-Write-Host ""
 Write-Host "Loading Enhanced Exchange Online Module..." -ForegroundColor Cyan
 
 # Load custom M365.ExchangeOnline module (if available)
@@ -193,45 +312,6 @@ catch {
 
 Write-Host ""
 
-# ================================
-# M365.AUTHENTICATION MODULE LOADING (For Switch Tenant functionality)
-# ================================
-
-Write-Host "Loading M365.Authentication Module..." -ForegroundColor Cyan
-
-# Load custom M365.Authentication module for Switch Tenant functionality
-try {
-    if (Test-Path ".\Modules\M365.Authentication\M365.Authentication.psd1") {
-        Write-Host "   Loading M365.Authentication module..." -ForegroundColor Yellow
-        Import-Module ".\Modules\M365.Authentication\M365.Authentication.psd1" -Force -ErrorAction Stop
-        Write-Host "   [OK] M365.Authentication module loaded successfully!" -ForegroundColor Green
-        Write-Host "   Switch Tenant functionality available!" -ForegroundColor Green
-        $Global:AuthModuleAvailable = $true
-        
-        # Test if key functions are available
-        $AuthFunctions = Get-Command -Module M365.Authentication -ErrorAction SilentlyContinue
-        Write-Host "   Available Authentication functions: $($AuthFunctions.Count)" -ForegroundColor Cyan
-        
-        # Specifically check for the disconnect function
-        if (Get-Command "Disconnect-FromMicrosoftGraph" -ErrorAction SilentlyContinue) {
-            Write-Host "   ✅ Disconnect-FromMicrosoftGraph function available" -ForegroundColor Green
-        } else {
-            Write-Host "   ⚠️ Disconnect-FromMicrosoftGraph function not found" -ForegroundColor Yellow
-        }
-    }
-    else {
-        Write-Host "   [WARNING] M365.Authentication module not found at .\Modules\M365.Authentication\" -ForegroundColor Yellow
-        Write-Host "   Switch Tenant functionality will be limited" -ForegroundColor Yellow
-        $Global:AuthModuleAvailable = $false
-    }
-}
-catch {
-    Write-Warning "[WARNING] Failed to load M365.Authentication: $($_.Exception.Message)"
-    Write-Host "   Switch Tenant functionality will be limited" -ForegroundColor Yellow
-    $Global:AuthModuleAvailable = $false
-}
-
-Write-Host ""
 
 # ================================
 # ENHANCED TENANT DISCOVERY FUNCTIONS
@@ -1528,6 +1608,43 @@ function Connect-ToMicrosoftGraph {
             
             Add-ActivityLog "Connection" "Success" "Connected to Microsoft Graph as $($Context.Account)"
             
+            # Ask user if they want to connect to Exchange Online for enhanced features
+            $ExchangePrompt = [System.Windows.Forms.MessageBox]::Show(
+                "Do you want to connect to Exchange Online now?`n`nThis enables:`n• Distribution list management`n• Shared mailbox permissions`n• Advanced Exchange features`n`nNote: This will open a browser for device code authentication`n`nYou can skip this and operations will be logged for manual processing.",
+                "Exchange Online Connection",
+                [System.Windows.Forms.MessageBoxButtons]::YesNo,
+                [System.Windows.Forms.MessageBoxIcon]::Question
+            )
+            
+            if ($ExchangePrompt -eq "Yes") {
+                try {
+                    Update-StatusLabel "Connecting to Exchange Online..."
+                    Add-ActivityLog "Exchange Connection" "Info" "Opening browser for Exchange Online device code authentication..."
+                    
+                    # Use device code authentication (REST API with browser link)
+                    Connect-ExchangeOnline -Device -ShowBanner:$false -ErrorAction Stop
+                    
+                    $Global:ExchangeOnlineConnected = $true
+                    Add-ActivityLog "Exchange Connection" "Success" "Successfully connected to Exchange Online with device code authentication"
+                    Update-StatusLabel "Connected to Microsoft Graph and Exchange Online"
+                }
+                catch {
+                    Add-ActivityLog "Exchange Connection" "Warning" "Exchange Online connection failed: $($_.Exception.Message)"
+                    $Global:ExchangeOnlineConnected = $false
+                    
+                    [System.Windows.Forms.MessageBox]::Show(
+                        "Exchange Online connection failed:`n`n$($_.Exception.Message)`n`nContinuing with Graph-only functionality.",
+                        "Exchange Connection Warning",
+                        [System.Windows.Forms.MessageBoxButtons]::OK,
+                        [System.Windows.Forms.MessageBoxIcon]::Warning
+                    )
+                }
+            }
+            else {
+                Add-ActivityLog "Exchange Connection" "Skipped" "User chose to skip Exchange Online connection"
+                $Global:ExchangeOnlineConnected = $false
+            }
+            
             # Auto-discover tenant data (enhanced)
             Get-TenantData
             
@@ -2563,10 +2680,13 @@ function Register-FormEvents {
             }
         }
         
-        # Comprehensive disconnect from all M365 modules
-        if ($Global:IsConnected) {
+        # ENHANCED: Comprehensive disconnect from all M365 modules on exit
+        if ($Global:IsConnected -or $Global:ExchangeOnlineConnected) {
             try {
-                Write-Host "🔄 Application closing - Performing comprehensive disconnect from M365 services..." -ForegroundColor Yellow
+                Write-Host "🔄 Application closing - Performing AGGRESSIVE disconnect and cache clearing..." -ForegroundColor Yellow
+                
+                # Step 1: Disconnect all active connections
+                Write-Host "   Step 1: Disconnecting active sessions..." -ForegroundColor Cyan
                 
                 # Use our enhanced disconnect function if available
                 if (Get-Command "Disconnect-FromMicrosoftGraph" -ErrorAction SilentlyContinue) {
@@ -2591,8 +2711,80 @@ function Register-FormEvents {
                     Write-Host "   ✅ Basic disconnect completed" -ForegroundColor Green
                 }
                 
+                # Step 2: AGGRESSIVE PowerShell module cleanup
+                Write-Host "   Step 2: Removing PowerShell modules from memory..." -ForegroundColor Cyan
+                try {
+                    # Remove Microsoft Graph modules
+                    $GraphModules = @('Microsoft.Graph.Authentication', 'Microsoft.Graph.Users', 'Microsoft.Graph.Groups', 'Microsoft.Graph.Identity.DirectoryManagement', 'Microsoft.Graph.Sites', 'Microsoft.Graph.Users.Actions')
+                    foreach ($ModuleName in $GraphModules) {
+                        if (Get-Module $ModuleName -ErrorAction SilentlyContinue) {
+                            Remove-Module $ModuleName -Force -ErrorAction SilentlyContinue
+                            Write-Host "     Removed: $ModuleName" -ForegroundColor Gray
+                        }
+                    }
+                    
+                    # Remove Exchange Online module
+                    if (Get-Module "ExchangeOnlineManagement" -ErrorAction SilentlyContinue) {
+                        Remove-Module "ExchangeOnlineManagement" -Force -ErrorAction SilentlyContinue
+                        Write-Host "     Removed: ExchangeOnlineManagement" -ForegroundColor Gray
+                    }
+                    
+                    # Remove custom modules
+                    $CustomModules = @('M365.Authentication', 'M365.ExchangeOnline', 'M365.UserManagement', 'M365.GUI')
+                    foreach ($ModuleName in $CustomModules) {
+                        if (Get-Module $ModuleName -ErrorAction SilentlyContinue) {
+                            Remove-Module $ModuleName -Force -ErrorAction SilentlyContinue
+                            Write-Host "     Removed: $ModuleName" -ForegroundColor Gray
+                        }
+                    }
+                    
+                    Write-Host "   ✅ PowerShell modules removed from memory" -ForegroundColor Green
+                }
+                catch {
+                    Write-Host "   ⚠️ Module cleanup completed with warnings" -ForegroundColor Yellow
+                }
+                
+                # Step 3: SUPER AGGRESSIVE cache file cleanup
+                Write-Host "   Step 3: Clearing authentication cache files..." -ForegroundColor Cyan
+                try {
+                    $CachePaths = @(
+                        "$env:USERPROFILE\.mg",
+                        "$env:LOCALAPPDATA\Microsoft\Graph",
+                        "$env:APPDATA\Microsoft\Graph",
+                        "$env:TEMP\Microsoft Graph PowerShell",
+                        "$env:LOCALAPPDATA\Microsoft\ExchangeOnlineManagement",
+                        "$env:APPDATA\Microsoft\ExchangeOnlineManagement",
+                        "$env:TEMP\ExchangeOnlineManagement"
+                    )
+                    
+                    foreach ($CachePath in $CachePaths) {
+                        if (Test-Path $CachePath) {
+                            try {
+                                Remove-Item $CachePath -Recurse -Force -ErrorAction Stop
+                                Write-Host "     Cleared: $CachePath" -ForegroundColor Gray
+                            }
+                            catch {
+                                Write-Host "     Locked: $CachePath (in use)" -ForegroundColor DarkGray
+                            }
+                        }
+                    }
+                    
+                    Write-Host "   ✅ Authentication cache files cleared" -ForegroundColor Green
+                }
+                catch {
+                    Write-Host "   ⚠️ Cache file cleanup completed with warnings" -ForegroundColor Yellow
+                }
+                
+                # Step 4: Force garbage collection to clear memory
+                Write-Host "   Step 4: Forcing memory cleanup..." -ForegroundColor Cyan
+                [System.GC]::Collect()
+                [System.GC]::WaitForPendingFinalizers()
+                [System.GC]::Collect()
+                Write-Host "   ✅ Memory cleanup completed" -ForegroundColor Green
+                
                 $Global:IsConnected = $false
-                Write-Host "✅ All M365 services disconnected successfully" -ForegroundColor Green
+                $Global:ExchangeOnlineConnected = $false
+                Write-Host "✅ AGGRESSIVE M365 cleanup completed successfully" -ForegroundColor Green
             }
             catch {
                 Write-Warning "Error during comprehensive disconnect: $($_.Exception.Message)"

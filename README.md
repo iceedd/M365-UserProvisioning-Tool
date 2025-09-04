@@ -1,148 +1,221 @@
 # M365 User Provisioning Tool
 
-## Overview
+[![PowerShell](https://img.shields.io/badge/PowerShell-7.0+-blue.svg)](https://github.com/PowerShell/PowerShell)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+[![Platform](https://img.shields.io/badge/Platform-Windows-lightgrey.svg)](https://github.com/PowerShell/PowerShell)
 
-A comprehensive PowerShell-based application designed to simplify Microsoft 365 user creation and management for IT support teams. This tool eliminates the need to navigate multiple M365 admin portals by providing a single, intuitive interface for all user provisioning tasks.
+> **Enterprise-grade Microsoft 365 user provisioning tool with multi-tenant support designed for IT support teams and Managed Service Providers (MSPs).**
 
-## Who Is This For?
+## 🚀 What This Tool Does
 
-### Primary Audience: **First-Line IT Support Teams**
-- **Help desk technicians** who need to create users quickly and accurately
-- **Junior IT staff** who may not be familiar with PowerShell or M365 admin centers
-- **Service desk teams** handling user onboarding requests
-- **IT departments** looking to standardize and streamline user creation processes
+A comprehensive PowerShell-based GUI application that **eliminates the complexity** of Microsoft 365 user management by providing a single, intuitive interface for all user provisioning tasks across multiple tenants.
 
-### Use Cases:
-- **New employee onboarding** - Create users with proper licenses, groups, and permissions
-- **Bulk user imports** - Handle multiple new hires from HR systems via CSV
-- **Contractor/temporary user setup** - Quick user creation with appropriate access
-- **User management tasks** - Standardized approach across the organization
+### ✨ Key Features
 
-## What This Tool Does
+- **🎯 Single User Creation** - Complete user setup with all M365 properties
+- **📊 Bulk CSV Import** - Create multiple users from spreadsheet data  
+- **🔄 Multi-Tenant Support** - Switch between M365 tenants without restarting
+- **⚡ Real-time Validation** - Instant username availability checking
+- **🛡️ Security First** - Uses official Microsoft Graph API with OAuth
+- **📝 Activity Logging** - Complete audit trail for compliance
+- **🏢 MSP-Ready** - Perfect for managing multiple client tenants
+- **💡 Dynamic Groups** - Works with your existing M365 dynamic group setup
+- **🔍 Exchange Integration** - Mailbox, distribution list, and shared mailbox management
 
-### 🎯 **Core Functionality**
-- **Single User Creation** - Complete user setup through an intuitive GUI
-- **Bulk CSV Import** - Create multiple users from spreadsheet data
-- **Real-time Validation** - Instant username availability checking
-- **Safety Features** - Confirmation dialogs prevent accidental user creation
+## 🎯 Who This Is For
 
-### 🔧 **Key Features**
-- **No M365 Portal Navigation** - Everything from one interface
-- **🔄 Multi-Tenant Support** - Switch between different M365 tenants without restarting
-- **🏢 Perfect for MSPs** - Manage multiple client tenants seamlessly
-- **Intelligent Tenant Discovery** - Automatically finds available licenses, groups, and domains
-- **License Assignment** - Assigns appropriate M365 licenses during user creation
-- **Group Membership** - Add users to security and distribution groups
-- **Exchange Integration** - Mailbox setup and distribution list management
-- **Activity Logging** - Track all user creation activities for audit purposes
-- **🧹 Clean Tenant Switching** - Complete data isolation between tenants
+### Primary Users
+- **IT Support Teams** - First-line technicians creating users daily
+- **Managed Service Providers (MSPs)** - Managing multiple client tenants  
+- **Help Desk Staff** - Non-PowerShell users needing simple user creation
+- **System Administrators** - Looking to standardize user provisioning processes
 
-### 💼 **Business Benefits**
-- **Reduces Training Time** - Simple GUI instead of complex admin portals
-- **Prevents Errors** - Built-in validation and confirmation dialogs
-- **Increases Efficiency** - Bulk operations and standardized workflows
-- **Ensures Consistency** - Same process every time, reducing variations
-- **Improves Audit** - Complete activity logging for compliance
+### Perfect For
+- **Multi-client environments** (up to 150 users per tenant)
+- **Organizations using dynamic groups** for license assignment
+- **Teams wanting to eliminate M365 admin portal complexity**
+- **Compliance-focused environments** requiring audit trails
 
-## Technical Requirements
+## 🚀 Quick Start Guide
 
-- **PowerShell 7.0+** (Critical - Windows PowerShell 5.1 will not work)
-- **Windows 10/11** or **Windows Server 2019/2022**
-- **Microsoft 365 Global Administrator** or **User Administrator** permissions
-- **Internet connection** for M365 API access
+### Option 1: One-Click Setup (Recommended)
+1. **Download** this repository as ZIP
+2. **Extract** to any folder (e.g., `C:\M365-Tool\`)  
+3. **Double-click** `Start-Tool.bat`
+4. **Follow prompts** to install PowerShell 7 and required modules
+5. **Launch** and connect to your first Microsoft 365 tenant!
 
-## Quick Start
+### Option 2: Manual Setup
+```powershell
+# Install PowerShell 7 (if needed)
+winget install Microsoft.PowerShell
 
-### For First-Line Teams (Easiest)
-1. **Download** the ZIP file from GitHub
-2. **Extract** to a folder (e.g., `C:\M365-Tool\`)
-3. **Install PowerShell 7**: `winget install Microsoft.PowerShell`
-4. **Double-click** `Start-Tool.bat`
-5. **Connect** to Microsoft 365 and start creating users!
-6. **🔄 Switch Tenants** - Use the orange Switch Tenant button for multi-tenant management
+# Install required modules
+.\Install-Prerequisites.ps1
 
-### What You Get
-- **Automated setup** - All required modules install automatically
-- **User-friendly interface** - No PowerShell knowledge required
-- **Step-by-step guidance** - Clear instructions and error messages
-- **Professional appearance** - Looks and feels like enterprise software
+# Launch the tool
+.\M365-UserProvisioning-Enterprise.ps1
+```
 
-## 🔄 Multi-Tenant Management
+### First Connection
+1. Click **"Connect to Microsoft 365"**
+2. **Sign in** with Global Admin or User Admin credentials
+3. **Wait** for tenant discovery to complete (finds users, groups, licenses)
+4. **Start creating users** with the intuitive interface!
 
-### Perfect for Managed Service Providers (MSPs) and Multi-Tenant Environments
+## 🔄 Multi-Tenant Management (MSP Feature)
 
-The **Switch Tenant** functionality allows seamless switching between different Microsoft 365 tenants without restarting the application:
+### Seamless Tenant Switching
+Perfect for MSPs managing multiple client environments:
 
-#### How It Works:
-1. **Connect to first tenant** - Authenticate and work with users as normal
-2. **Click "🔄 Switch Tenant"** - Orange button next to Connect button  
-3. **Confirm disconnection** - Clears all cached authentication and tenant data
-4. **Connect to new tenant** - Authenticate with different credentials
-5. **Work with new tenant** - All data refreshed for the new organization
+1. **Connect** to first client tenant
+2. **Work** with users as normal  
+3. **Click "🔄 Switch Tenant"** (orange button)
+4. **Confirm** disconnection (clears all cached data)
+5. **Connect** to different client tenant
+6. **Continue** working with complete data isolation
 
-#### Key Benefits:
-- ✅ **No application restart** required
-- ✅ **Complete data isolation** between tenants
-- ✅ **Aggressive cache clearing** prevents data bleeding
-- ✅ **MSP-friendly** - Perfect for consultants managing multiple clients
-- ✅ **Help desk efficiency** - Switch between client environments instantly
+### Security & Isolation
+- ✅ **Aggressive cache clearing** prevents data bleeding between tenants
+- ✅ **Fresh authentication** required for each tenant
+- ✅ **Separate audit logs** per tenant for compliance
+- ✅ **No credential storage** - always prompts for authentication
 
-#### Security Features:
-- **Complete authentication clearing** - Both Microsoft Graph and Exchange Online
-- **Cached data removal** - Clears all tenant-specific information
-- **Fresh authentication** - Forces new login for each tenant
-- **Audit trail separation** - Activity logs clearly show tenant switches
+## 📋 Core Functionality
 
-## Repository Structure
+### Single User Creation
+- **Complete user profiles** with all M365 attributes
+- **Real-time username validation** 
+- **Secure password generation** or custom passwords
+- **Dynamic group assignment** (works with your existing setup)
+- **License assignment** via CustomAttribute1
+- **Manager assignment** and organizational hierarchy
+
+### Bulk Operations  
+- **CSV import** with template generation
+- **Progress tracking** with detailed status updates
+- **Dry-run testing** before actual user creation
+- **Error handling** with detailed reporting
+- **Rollback capabilities** for failed operations
+
+### Exchange Integration
+- **Mailbox provisioning** 
+- **Distribution list management**
+- **Shared mailbox permissions**
+- **Mail-enabled security groups**
+- **Real-time Exchange data discovery**
+
+## 📁 Repository Structure
 
 ```
 M365-UserProvisioning-Tool/
-├── M365-UserProvisioning-Enterprise.ps1    # Main application
-├── Install-Prerequisites.ps1               # Automatic setup script
-├── Start-Tool.bat                          # One-click launcher
-├── USER-GUIDE.md                          # Complete documentation
-├── Modules/                                # PowerShell modules
-│   ├── M365.Authentication/               # M365 connection & tenant switching
-│   ├── M365.GUI/                         # User interface
-│   ├── M365.UserManagement/              # User creation logic
-│   └── M365.ExchangeOnline/              # Exchange operations
-├── Templates/                             # CSV templates for bulk import
-├── Tests/                                 # Testing scripts and validation tools
-├── Logs/                                  # Application logs and activity history
-└── .claude/                              # Claude Code configuration and prompts
+├── M365-UserProvisioning-Enterprise.ps1    # 🎯 Main application  
+├── Start-Tool.bat                          # 🚀 One-click launcher
+├── Install-Prerequisites.ps1               # ⚙️ Automated setup
+├── Modules/                                # 📦 PowerShell modules
+│   ├── M365.Authentication/               #   🔐 Authentication & tenant switching  
+│   ├── M365.GUI/                         #   🖥️ User interface components
+│   ├── M365.UserManagement/              #   👤 User creation logic
+│   └── M365.ExchangeOnline/              #   📧 Exchange operations
+├── Templates/                             # 📄 CSV templates for bulk import
+├── Tests/                                 # 🧪 Testing and validation scripts  
+├── Logs/                                  # 📊 Activity logs and audit trails
+└── Documentation/                         # 📚 Additional guides and help
 ```
 
-## Why Choose This Tool?
+## ⚙️ System Requirements
 
-### Instead of M365 Admin Center:
-- ❌ **Multiple portals** to navigate (Users, Exchange, Groups, Licenses)
-- ❌ **Complex interface** requiring training
-- ❌ **Easy to make mistakes** with manual entry
-- ❌ **No bulk operations** or automation
+### Required
+- **PowerShell 7.0+** (⚠️ Windows PowerShell 5.1 will NOT work)
+- **Windows 10/11** or **Windows Server 2019/2022**
+- **Microsoft 365 tenant** with admin permissions
+- **Internet connection** for Microsoft Graph API access
 
-### With M365 User Provisioning Tool:
-- ✅ **Single interface** for all user operations
-- ✅ **Intuitive GUI** anyone can use
-- ✅ **Built-in validation** prevents errors
-- ✅ **Bulk operations** and CSV import
-- ✅ **Real-time feedback** and confirmation dialogs
-- ✅ **Activity logging** for audit trails
+### Permissions Needed
+- **Global Administrator** (full functionality)
+- **User Administrator** (user creation only)
+- **Exchange Administrator** (for Exchange features)
 
-## Support & Documentation
+### Auto-Installed Dependencies
+The tool automatically installs these Microsoft modules:
+- Microsoft.Graph.Authentication
+- Microsoft.Graph.Users  
+- Microsoft.Graph.Groups
+- Microsoft.Graph.Identity.DirectoryManagement
+- ExchangeOnlineManagement
 
-- **📖 Complete User Guide**: See `USER-GUIDE.md` for detailed instructions
-- **🚀 Quick Setup**: Use `Start-Tool.bat` for automatic installation
-- **❓ Issues & Questions**: Check GitHub Issues for support
-- **🔧 Technical Details**: See `.claude/CLAUDE.md` for development info
+## 🛠️ Advanced Usage
 
-## Security & Compliance
+### For MSPs Managing Multiple Clients
+- Use **Switch Tenant** for seamless client switching
+- **Standardized workflows** across all client environments
+- **Separate audit logs** for each client
+- **Dynamic discovery** eliminates client-specific configuration
 
-- **Secure Authentication** - Uses Microsoft's official Graph API
-- **No Password Storage** - Generates secure passwords on-demand
-- **Audit Logging** - Complete activity tracking
-- **Minimal Permissions** - Only requires necessary M365 admin rights
-- **Local Processing** - No data sent to third-party services
+### Integration with Dynamic Groups
+- Works perfectly with **M365 dynamic groups**
+- **License assignment** via CustomAttribute1 triggers dynamic group rules
+- **No hardcoded client configurations** needed
+- **Flexible group assignment** based on user attributes
+
+### Bulk Import Features
+- **CSV template generation** for consistent data format
+- **Data validation** before import starts
+- **Progress tracking** with real-time updates
+- **Error reporting** with detailed failure information
+- **Dry-run mode** for testing before production
+
+## 📊 Enterprise Features
+
+### Security & Compliance
+- **Official Microsoft Graph API** - No third-party dependencies
+- **OAuth authentication** - No password storage
+- **Complete audit logging** - Track all user creation activities  
+- **Data isolation** - Aggressive tenant data clearing
+- **Local processing** - No data sent to external services
+
+### Reliability & Performance  
+- **Robust error handling** - Graceful failure recovery
+- **Connection management** - Automatic token refresh
+- **Memory management** - Efficient handling of large datasets
+- **Modular architecture** - Easy to maintain and extend
+
+## 🆘 Support & Troubleshooting
+
+### Getting Help
+- **📖 User Guide**: See `USER-GUIDE.md` for detailed instructions
+- **🐛 Issues**: Report bugs via GitHub Issues
+- **💡 Questions**: Check existing issues or create new ones
+
+### Common Issues
+- **PowerShell Version**: Ensure you're using PowerShell 7.0+, not Windows PowerShell 5.1
+- **Module Installation**: Run `Install-Prerequisites.ps1` as administrator if modules fail to install
+- **Tenant Permissions**: Verify you have User Administrator or Global Administrator role
+
+## 🤝 Contributing
+
+This tool is designed for enterprise use. If you encounter issues or have suggestions:
+
+1. **Check existing issues** on GitHub
+2. **Create detailed bug reports** with logs from the `Logs/` folder
+3. **Test thoroughly** before submitting pull requests
+4. **Follow PowerShell best practices** in any contributions
+
+## 📄 License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
-**Perfect for organizations looking to streamline M365 user management while maintaining security and reducing support burden on IT teams.**
+### 🌟 Why Choose This Tool Over M365 Admin Portal?
+
+| M365 Admin Portal | This Tool |
+|-------------------|-----------|
+| ❌ Multiple portals to navigate | ✅ Single unified interface |
+| ❌ Complex setup requiring training | ✅ Intuitive GUI anyone can use |
+| ❌ Manual entry prone to errors | ✅ Built-in validation and safety checks |
+| ❌ No bulk operations | ✅ CSV import with progress tracking |
+| ❌ Tenant switching requires new browser sessions | ✅ Seamless tenant switching |
+| ❌ Limited audit capabilities | ✅ Complete activity logging |
+
+**Transform your M365 user management from complex to simple. Perfect for IT teams who want enterprise-grade functionality without the enterprise-level complexity.**

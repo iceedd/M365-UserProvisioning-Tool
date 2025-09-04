@@ -172,9 +172,7 @@ function Connect-ToMicrosoftGraph {
             Write-Verbose "Starting tenant discovery..."
             $DiscoveryResult = Start-TenantDiscovery
             
-            # Attempt Exchange Online connection
-            Write-Verbose "Checking Exchange Online connectivity..."
-            $ExchangeResult = Connect-ExchangeOnlineAtStartup -Force
+            # Note: Exchange Online connection will be prompted separately in main application
             
             return @{
                 Success = $true
@@ -182,7 +180,7 @@ function Connect-ToMicrosoftGraph {
                 Account = $Context.Account
                 Environment = $Context.Environment
                 TenantData = $Script:TenantData
-                ExchangeOnlineConnected = $Script:ExchangeOnlineConnected
+                ExchangeOnlineConnected = $false  # Will be set to true after user chooses to connect
                 Message = "Successfully connected to Microsoft Graph and completed tenant discovery"
             }
         }
@@ -414,11 +412,16 @@ function Disconnect-FromMicrosoftGraph {
                     Remove-Item $GraphCacheFolder -Recurse -Force -ErrorAction SilentlyContinue
                 }
                 
-                # Clear additional cache locations
+                # Clear additional cache locations - SUPER AGGRESSIVE for tenant switching
                 $TokenCachePaths = @(
                     "$env:LOCALAPPDATA\Microsoft\Graph",
                     "$env:APPDATA\Microsoft\Graph", 
-                    "$env:TEMP\Microsoft Graph PowerShell"
+                    "$env:TEMP\Microsoft Graph PowerShell",
+                    "$env:LOCALAPPDATA\Microsoft\ExchangeOnlineManagement",
+                    "$env:APPDATA\Microsoft\ExchangeOnlineManagement",
+                    "$env:TEMP\ExchangeOnlineManagement",
+                    "$env:LOCALAPPDATA\Microsoft\MSAL*",
+                    "$env:APPDATA\Microsoft\MSAL*"
                 )
                 
                 foreach ($CachePath in $TokenCachePaths) {
