@@ -77,16 +77,9 @@ $Script:ImportButton = $null
 $Script:DryRunCheckBox = $null
 $Script:SkipDuplicatesCheckBox = $null
 
-# License type mappings for CustomAttribute1
-$Global:LicenseTypes = @{
-    "BusinessBasic" = "BusinessBasic"
-    "BusinessPremium" = "BusinessPremium"
-    "BusinessStandard" = "BusinessStandard"
-    "E3" = "E3"
-    "E5" = "E5"
-    "ExchangeOnline1" = "ExchangeOnline1"
-    "ExchangeOnline2" = "ExchangeOnline2"
-}
+# GBL licence groups — populated at runtime from "License - *" groups in Entra
+# Each entry: @{ Name; GroupId; AvailableSeats }
+$Global:LicenseGroups = @()
 
 # Activity logging
 $Global:LogFile = "M365_Provisioning_$(Get-Date -Format 'yyyyMMdd_HHmmss').log"
@@ -426,7 +419,38 @@ function Get-TenantData {
         # Get available licenses
         Write-Host "   Getting license information..." -ForegroundColor Yellow
         $Global:AvailableLicenses = Get-MgSubscribedSku
-        
+
+        # Discover GBL licence groups ("License - *") and cross-reference seat counts
+        Write-Host "   Discovering licence groups..." -ForegroundColor Yellow
+        $Global:LicenseGroups = @()
+        try {
+            $gblGroups = Get-MgGroup -Filter "startsWith(displayName,'License - ')" -All -ErrorAction Stop |
+                         Sort-Object DisplayName
+            foreach ($grp in $gblGroups) {
+                $availableSeats = $null
+                try {
+                    $details = Invoke-MgGraphRequest -Method GET `
+                        -Uri "https://graph.microsoft.com/v1.0/groups/$($grp.Id)/licenseDetails" `
+                        -ErrorAction Stop
+                    $skuId = $details.value | Select-Object -First 1 -ExpandProperty skuId
+                    if ($skuId) {
+                        $sku = $Global:AvailableLicenses |
+                               Where-Object { $_.SkuId -eq $skuId } |
+                               Select-Object -First 1
+                        if ($sku) { $availableSeats = $sku.PrepaidUnits.Enabled - $sku.ConsumedUnits }
+                    }
+                }
+                catch { }
+                $Global:LicenseGroups += @{
+                    Name           = $grp.DisplayName
+                    GroupId        = $grp.Id
+                    AvailableSeats = $availableSeats
+                }
+            }
+            Write-Host "   Found $($Global:LicenseGroups.Count) licence group(s)" -ForegroundColor Gray
+        }
+        catch { Write-Warning "Could not discover licence groups: $($_.Exception.Message)" }
+
         # Update UI with discovered data
         Update-TenantDataDisplay
         Update-Dropdowns
@@ -514,10 +538,10 @@ function Update-Dropdowns {
     }
     $Script:ManagerDropdown.SelectedIndex = 0
     
-    # Update license dropdown
+    # Update license dropdown from discovered GBL groups
     $Script:LicenseDropdown.Items.Clear()
-    foreach ($LicenseType in $Global:LicenseTypes.Keys) {
-        $Script:LicenseDropdown.Items.Add($LicenseType) | Out-Null
+    foreach ($grp in $Global:LicenseGroups) {
+        $Script:LicenseDropdown.Items.Add($grp.Name) | Out-Null
     }
     if ($Script:LicenseDropdown.Items.Count -gt 0) {
         $Script:LicenseDropdown.SelectedIndex = 0
@@ -703,12 +727,12 @@ function New-M365User {
             Write-Host "   Setting Office Location: $Office" -ForegroundColor Gray
         }
         
-        # Set CustomAttribute1 for license assignment
+        # Warn if selected licence group has no seats available
         if ($LicenseType) {
-            $UserParams.OnPremisesExtensionAttributes = @{
-                ExtensionAttribute1 = $LicenseType
+            $selectedGrp = $Global:LicenseGroups | Where-Object { $_.Name -eq $LicenseType } | Select-Object -First 1
+            if ($selectedGrp -and $null -ne $selectedGrp.AvailableSeats -and $selectedGrp.AvailableSeats -le 0) {
+                Write-Host "   [WARNING] No available seats in '$LicenseType' — user will not receive a licence until a seat is freed" -ForegroundColor Yellow
             }
-            Write-Host "   Setting License Type (CustomAttribute1): $LicenseType" -ForegroundColor Gray
         }
         
         # Create the user
@@ -748,6 +772,24 @@ function New-M365User {
             }
         }
         
+        # Add user to GBL licence group (group membership assigns licence automatically)
+        if ($NewUser -and $NewUser.Id -and $LicenseType) {
+            $LicenseGroup = $Global:LicenseGroups | Where-Object { $_.Name -eq $LicenseType } | Select-Object -First 1
+            if ($LicenseGroup) {
+                try {
+                    $GroupMember = @{ "@odata.id" = "https://graph.microsoft.com/v1.0/users/$($NewUser.Id)" }
+                    New-MgGroupMember -GroupId $LicenseGroup.GroupId -BodyParameter $GroupMember -ErrorAction Stop
+                    Write-Host "   [OK] Added to licence group: $LicenseType (licence will assign within minutes)" -ForegroundColor Green
+                }
+                catch {
+                    Write-Host "   [WARNING] Could not add to licence group: $($_.Exception.Message)" -ForegroundColor Yellow
+                }
+            }
+            else {
+                Write-Host "   [WARNING] Licence group '$LicenseType' not found in tenant" -ForegroundColor Yellow
+            }
+        }
+
         # FIXED: RESTORED LEGACY GROUP PROCESSING - MANUAL SELECTION ONLY (NO HARDCODED ASSUMPTIONS)
         if ($NewUser -and $NewUser.Id -and $Groups -and $Groups.Count -gt 0) {
             Write-Host "   Processing manually selected groups..." -ForegroundColor Yellow
@@ -874,7 +916,7 @@ function New-M365User {
         # Enhanced success message
         $SuccessMessage = "User created successfully!`n`nName: $DisplayName`nUPN: $UserPrincipalName"
         if ($LicenseType) {
-            $SuccessMessage += "`nLicense Type (CustomAttribute1): $LicenseType"
+            $SuccessMessage += "`nLicence group: $LicenseType (licence will assign automatically)"
         }
         if ($Department) {
             $SuccessMessage += "`nDepartment: $Department"
@@ -1278,16 +1320,8 @@ function Clear-TenantData {
             Clear-ExchangeDataCache
         }
         
-        # Reset license types to default (shouldn't contain tenant-specific data but reset anyway)
-        $Global:LicenseTypes = @{
-            "BusinessBasic" = "BusinessBasic"
-            "BusinessPremium" = "BusinessPremium"
-            "BusinessStandard" = "BusinessStandard"
-            "E3" = "E3"
-            "E5" = "E5"
-            "ExchangeOnline1" = "ExchangeOnline1"
-            "ExchangeOnline2" = "ExchangeOnline2"
-        }
+        # Reset GBL licence groups (repopulated on next tenant connection)
+        $Global:LicenseGroups = @()
         
         # Clear all dropdowns and lists
         Write-Host "   Clearing dropdowns and lists..." -ForegroundColor Gray
@@ -2236,13 +2270,38 @@ function New-UserCreationTab {
     $Script:LicenseDropdown.Size = New-Object System.Drawing.Size(330, 20)
     $Script:LicenseDropdown.DropDownStyle = "DropDownList"
     
-    # License info
-    $LicenseInfoLabel = New-Object System.Windows.Forms.Label
-    $LicenseInfoLabel.Text = "Note: License assignment is handled via CustomAttribute1"
-    $LicenseInfoLabel.Location = New-Object System.Drawing.Point(10, 100)
-    $LicenseInfoLabel.Size = New-Object System.Drawing.Size(430, 30)
-    $LicenseInfoLabel.ForeColor = [System.Drawing.Color]::DarkBlue
-    $LicenseInfoLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.FontStyle]::Italic)
+    # License info (updated dynamically by SelectedIndexChanged)
+    $Script:LicenseInfoLabel = New-Object System.Windows.Forms.Label
+    $Script:LicenseInfoLabel.Text = "Select a licence group above to see available seats."
+    $Script:LicenseInfoLabel.Location = New-Object System.Drawing.Point(10, 100)
+    $Script:LicenseInfoLabel.Size = New-Object System.Drawing.Size(430, 30)
+    $Script:LicenseInfoLabel.ForeColor = [System.Drawing.Color]::DarkBlue
+    $Script:LicenseInfoLabel.Font = New-Object System.Drawing.Font("Segoe UI", 8.5, [System.Drawing.FontStyle]::Italic)
+
+    $Script:LicenseDropdown.Add_SelectedIndexChanged({
+        $selected = $Script:LicenseDropdown.SelectedItem
+        if ($selected -and $Script:LicenseInfoLabel) {
+            $grp = $Global:LicenseGroups | Where-Object { $_.Name -eq $selected } | Select-Object -First 1
+            if ($grp) {
+                if ($null -eq $grp.AvailableSeats) {
+                    $Script:LicenseInfoLabel.Text = "Seats: unknown — check licence usage in admin centre"
+                    $Script:LicenseInfoLabel.ForeColor = [System.Drawing.Color]::DarkBlue
+                }
+                elseif ($grp.AvailableSeats -le 0) {
+                    $Script:LicenseInfoLabel.Text = "WARNING: No seats available for $selected"
+                    $Script:LicenseInfoLabel.ForeColor = [System.Drawing.Color]::Red
+                }
+                else {
+                    $Script:LicenseInfoLabel.Text = "Available seats: $($grp.AvailableSeats)"
+                    $Script:LicenseInfoLabel.ForeColor = [System.Drawing.Color]::DarkGreen
+                }
+            }
+            else {
+                $Script:LicenseInfoLabel.Text = "Select a licence group above to see available seats."
+                $Script:LicenseInfoLabel.ForeColor = [System.Drawing.Color]::DarkBlue
+            }
+        }
+    })
     
     # Enhanced info
     $EnhancedInfoLabel = New-Object System.Windows.Forms.Label
@@ -2255,7 +2314,7 @@ function New-UserCreationTab {
     $ManagementGroup.Controls.AddRange(@(
         $ManagerLabel, $Script:ManagerDropdown,
         $LicenseLabel, $Script:LicenseDropdown,
-        $LicenseInfoLabel, $EnhancedInfoLabel
+        $Script:LicenseInfoLabel, $EnhancedInfoLabel
     ))
     
     # Groups Group (full width below)
