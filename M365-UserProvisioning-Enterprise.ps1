@@ -1623,10 +1623,17 @@ function Connect-ToMicrosoftGraph {
             "Sites.Read.All"
         )
 
-        # Connect (or silently re-connect using MSAL cached token)
-        $connectParams = @{ Scopes = $RequiredScopes; NoWelcome = $true }
-        if ($TenantId) { $connectParams['TenantId'] = $TenantId }
-        Connect-MgGraph @connectParams
+        # Connect — use Bearer token passed from parent process for silent auth,
+        # otherwise fall back to interactive MSAL login.
+        if ($env:M365_BEARER_TOKEN) {
+            $secureToken = ConvertTo-SecureString $env:M365_BEARER_TOKEN -AsPlainText -Force
+            [System.Environment]::SetEnvironmentVariable('M365_BEARER_TOKEN', $null)
+            Connect-MgGraph -AccessToken $secureToken -NoWelcome
+        } else {
+            $connectParams = @{ Scopes = $RequiredScopes; NoWelcome = $true }
+            if ($TenantId) { $connectParams['TenantId'] = $TenantId }
+            Connect-MgGraph @connectParams
+        }
 
         # Test connection
         $Context = Get-MgContext
