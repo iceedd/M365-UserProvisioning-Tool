@@ -1613,35 +1613,57 @@ function Connect-ToMicrosoftGraph {
     
     try {
         Update-StatusLabel "Connecting to Microsoft Graph..."
-        
-        $Scopes = @(
+
+        $RequiredScopes = @(
             "User.ReadWrite.All",
             "Group.ReadWrite.All",
             "Directory.ReadWrite.All",
             "Organization.Read.All",
             "Sites.Read.All"
         )
-        
-        Connect-MgGraph -Scopes $Scopes -NoWelcome
-        
+
+        # Detect existing Graph session (e.g. launched from Main-Menu.ps1)
+        $existingContext = Get-MgContext -ErrorAction SilentlyContinue
+        if ($existingContext -and $existingContext.Account) {
+            $existingScopes = @($existingContext.Scopes)
+            $missingScopes  = $RequiredScopes | Where-Object { $_ -notin $existingScopes }
+            if ($missingScopes.Count -gt 0) {
+                Write-Host "   Existing session found — adding $($missingScopes.Count) missing scope(s)..." -ForegroundColor Yellow
+                Connect-MgGraph -Scopes $missingScopes -NoWelcome
+            }
+            else {
+                Write-Host "   Existing session found — all required scopes present" -ForegroundColor Green
+            }
+        }
+        else {
+            Connect-MgGraph -Scopes $RequiredScopes -NoWelcome
+        }
+
         # Test connection
         $Context = Get-MgContext
         if ($Context) {
             $Global:IsConnected = $true
             Update-StatusLabel "[OK] Connected to Microsoft Graph as $($Context.Account)"
-            
+
             # Enable connection-dependent controls
             $Script:ConnectButton.Text = "Connected - Discover Tenant Data"
             $Script:ConnectButton.BackColor = [System.Drawing.Color]::LightGreen
             $Script:CreateUserButton.Enabled = $true
-            
+
             # Enable Switch Tenant button after successful connection
             if ($Script:SwitchTenantButton) {
                 $Script:SwitchTenantButton.Enabled = $true
             }
-            
+
             Add-ActivityLog "Connection" "Success" "Connected to Microsoft Graph as $($Context.Account)"
-            
+
+            # Skip Exchange Online prompt when launched from Main-Menu.ps1
+            if ($Global:ProvisioningToolLaunchedFromMenu) {
+                $Global:ExchangeOnlineConnected = $false
+                Get-TenantData
+                return $true
+            }
+
             # Ask user if they want to connect to Exchange Online for enhanced features
             $ExchangePrompt = [System.Windows.Forms.MessageBox]::Show(
                 "Do you want to connect to Exchange Online now?`n`nThis enables:`n• Distribution list management`n• Shared mailbox permissions`n• Advanced Exchange features`n`nNote: This will open a browser for device code authentication`n`nYou can skip this and operations will be logged for manual processing.",
@@ -2720,6 +2742,15 @@ function Register-FormEvents {
         Registers form event handlers
     #>
     
+    # Auto-detect existing Graph session on show (e.g. launched from Main-Menu.ps1)
+    $Script:MainForm.Add_Shown({
+        $existingCtx = Get-MgContext -ErrorAction SilentlyContinue
+        if ($existingCtx -and $existingCtx.Account) {
+            Write-Host "   Detected existing Graph session — linking to provisioning tool..." -ForegroundColor Green
+            Connect-ToMicrosoftGraph
+        }
+    })
+
     # Form closing event
     $Script:MainForm.Add_FormClosing({
         param($sender, $e)
@@ -2740,7 +2771,8 @@ function Register-FormEvents {
         }
         
         # ENHANCED: Comprehensive disconnect from all M365 modules on exit
-        if ($Global:IsConnected -or $Global:ExchangeOnlineConnected) {
+        # Skip if launched from Main-Menu.ps1 — preserve the parent session
+        if (($Global:IsConnected -or $Global:ExchangeOnlineConnected) -and !$Global:ProvisioningToolLaunchedFromMenu) {
             try {
                 Write-Host "🔄 Application closing - Performing AGGRESSIVE disconnect and cache clearing..." -ForegroundColor Yellow
                 
