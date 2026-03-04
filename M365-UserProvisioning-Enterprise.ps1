@@ -2,8 +2,9 @@
 
 [CmdletBinding()]
 param(
-    [switch]$NoGUI,     # For command-line mode if needed
-    [switch]$TestMode   # For testing without making changes
+    [switch]$NoGUI,        # For command-line mode if needed
+    [switch]$TestMode,     # For testing without making changes
+    [string]$TenantId = $null  # Pre-supply tenant ID for silent MSAL re-connect
 )
 
 <#
@@ -1622,22 +1623,10 @@ function Connect-ToMicrosoftGraph {
             "Sites.Read.All"
         )
 
-        # Detect existing Graph session (e.g. launched from Main-Menu.ps1)
-        $existingContext = Get-MgContext -ErrorAction SilentlyContinue
-        if ($existingContext -and $existingContext.Account) {
-            $existingScopes = @($existingContext.Scopes)
-            $missingScopes  = $RequiredScopes | Where-Object { $_ -notin $existingScopes }
-            if ($missingScopes.Count -gt 0) {
-                Write-Host "   Existing session found — adding $($missingScopes.Count) missing scope(s)..." -ForegroundColor Yellow
-                Connect-MgGraph -Scopes $missingScopes -NoWelcome
-            }
-            else {
-                Write-Host "   Existing session found — all required scopes present" -ForegroundColor Green
-            }
-        }
-        else {
-            Connect-MgGraph -Scopes $RequiredScopes -NoWelcome
-        }
+        # Connect (or silently re-connect using MSAL cached token)
+        $connectParams = @{ Scopes = $RequiredScopes; NoWelcome = $true }
+        if ($TenantId) { $connectParams['TenantId'] = $TenantId }
+        Connect-MgGraph @connectParams
 
         # Test connection
         $Context = Get-MgContext
@@ -2742,11 +2731,10 @@ function Register-FormEvents {
         Registers form event handlers
     #>
     
-    # Auto-detect existing Graph session on show (e.g. launched from Main-Menu.ps1)
+    # Auto-connect on show when launched from Main-Menu.ps1 (TenantId passed as arg)
     $Script:MainForm.Add_Shown({
-        $existingCtx = Get-MgContext -ErrorAction SilentlyContinue
-        if ($existingCtx -and $existingCtx.Account) {
-            Write-Host "   Detected existing Graph session — linking to provisioning tool..." -ForegroundColor Green
+        if ($TenantId) {
+            Write-Host "   Connecting to tenant $TenantId using cached credentials..." -ForegroundColor Green
             Connect-ToMicrosoftGraph
         }
     })
